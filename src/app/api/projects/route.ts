@@ -10,9 +10,10 @@ export async function GET() {
 
     if (error) throw error;
     return Response.json(data || []);
-  } catch (error) {
-    console.error("GET /api/projects error:", error);
-    return Response.json({ error: "Failed to load projects" }, { status: 500 });
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("GET /api/projects error:", msg);
+    return Response.json({ error: msg }, { status: 500 });
   }
 }
 
