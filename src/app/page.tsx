@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
 import type { Project } from "@/types";
 
 export default function HomePage() {
@@ -16,33 +15,44 @@ export default function HomePage() {
   }, []);
 
   async function loadProjects() {
-    const { data } = await supabase
-      .from("projects")
-      .select("*")
-      .order("created_at", { ascending: false });
-    setProjects(data || []);
+    try {
+      const res = await fetch("/api/projects");
+      const data = await res.json();
+      setProjects(data || []);
+    } catch (error) {
+      console.error("Failed to load projects:", error);
+    }
     setLoading(false);
   }
 
   async function createProject() {
     if (!newName.trim()) return;
     setCreating(true);
-    const { data } = await supabase
-      .from("projects")
-      .insert({ name: newName.trim() })
-      .select()
-      .single();
-    if (data) {
-      setProjects([data, ...projects]);
-      setNewName("");
+    try {
+      const res = await fetch("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newName.trim() }),
+      });
+      const data = await res.json();
+      if (data) {
+        setProjects([data, ...projects]);
+        setNewName("");
+      }
+    } catch (error) {
+      console.error("Failed to create project:", error);
     }
     setCreating(false);
   }
 
   async function deleteProject(id: string) {
     if (!confirm("Weet je zeker dat je dit project wilt verwijderen?")) return;
-    await supabase.from("projects").delete().eq("id", id);
-    setProjects(projects.filter((p) => p.id !== id));
+    try {
+      await fetch(`/api/projects/${id}`, { method: "DELETE" });
+      setProjects(projects.filter((p) => p.id !== id));
+    } catch (error) {
+      console.error("Failed to delete project:", error);
+    }
   }
 
   return (
