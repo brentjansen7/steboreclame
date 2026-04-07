@@ -11,7 +11,7 @@ export async function GET() {
     if (error) throw error;
     return Response.json(data || []);
   } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : String(error);
+    const msg = error instanceof Error ? error.message : JSON.stringify(error);
     console.error("GET /api/projects error:", msg);
     return Response.json({ error: msg }, { status: 500 });
   }
