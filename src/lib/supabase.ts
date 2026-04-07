@@ -4,13 +4,15 @@ let _supabase: SupabaseClient | null = null;
 
 export function getSupabase(): SupabaseClient {
   if (!_supabase) {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    let url = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     if (!url || !key || url === "your-supabase-url-here") {
       throw new Error(
         "Supabase niet geconfigureerd. Vul NEXT_PUBLIC_SUPABASE_URL en NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local"
       );
     }
+    // Fix known typo: prfhydvlkzwg -> prifhydvlkzwg
+    url = url.replace("tnbwnqwprfhydvlkzwg", "tnbwnqwprifhydvlkzwg");
     _supabase = createClient(url, key);
   }
   return _supabase;
