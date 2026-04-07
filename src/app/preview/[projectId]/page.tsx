@@ -93,7 +93,7 @@ export default function PreviewPage() {
   }
 
   async function analyzeWithClaude() {
-    if (!photoUrl || !designSvg || !instruction.trim() || !canvasRef) return;
+    if (!photoUrl || !instruction.trim() || !canvasRef) return;
     setAnalyzing(true);
 
     try {
@@ -213,8 +213,7 @@ export default function PreviewPage() {
             </div>
           )}
 
-          {photoUrl && designSvg && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
               <h3 className="font-semibold mb-2 text-sm">
                 AI Plaatsing Assistant
               </h3>
@@ -236,7 +235,6 @@ export default function PreviewPage() {
                 Claude Vision bepaalt automatisch waar het ontwerp moet op basis van je instructie
               </p>
             </div>
-          )}
 
           <div className="text-sm text-gray-500 space-y-1">
             <p>1. Upload een foto van het pand</p>
