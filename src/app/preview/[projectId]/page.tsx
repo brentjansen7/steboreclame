@@ -96,8 +96,12 @@ export default function PreviewPage() {
     }
   }
 
+  const [aiError, setAiError] = useState<string | null>(null);
+
   async function analyzeWithClaude() {
-    if (!photoUrl || !instruction.trim() || !canvasRef) return;
+    setAiError(null);
+    if (!photoUrl) { setAiError("Upload eerst een gevelfoto."); return; }
+    if (!instruction.trim()) { setAiError("Typ een instructie."); return; }
     setAnalyzing(true);
 
     try {
@@ -108,22 +112,20 @@ export default function PreviewPage() {
           photoUrl,
           designSvg,
           instruction,
-          photoWidth: canvasRef.width,
-          photoHeight: canvasRef.height,
+          photoWidth: canvasRef?.width || 800,
+          photoHeight: canvasRef?.height || 500,
         }),
       });
 
       const data = await response.json();
-      if (data.corners) {
+      if (data.error) {
+        setAiError(data.error);
+      } else if (data.corners) {
         setCorners(data.corners);
-        await supabase
-          .from("previews")
-          .update({ corners: data.corners })
-          .eq("project_id", projectId);
       }
     } catch (error) {
+      setAiError("Verbindingsfout. Probeer opnieuw.");
       console.error("Analyse mislukt:", error);
-      alert("Claude kon de plaatsing niet bepalen. Probeer een duidelijkere instructie.");
     }
 
     setAnalyzing(false);
@@ -245,6 +247,9 @@ export default function PreviewPage() {
               >
                 {analyzing ? "Claude analyseert..." : "AI plaatsing berekenen"}
               </button>
+              {aiError && (
+                <p className="text-xs text-red-600 mt-2 font-medium">{aiError}</p>
+              )}
               <p className="text-xs text-gray-500 mt-2">
                 Claude Vision bepaalt automatisch waar het ontwerp moet op basis van je instructie
               </p>
