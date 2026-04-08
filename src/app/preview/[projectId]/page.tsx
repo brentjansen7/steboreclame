@@ -225,7 +225,7 @@ export default function PreviewPage() {
               accept=".svg"
               label="Of upload SVG lokaal"
               onFileLoaded={(text) => setDesignSvg(text)}
-              readAsText={true}
+              readAsText
             />
           </div>
 
