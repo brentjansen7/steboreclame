@@ -6,6 +6,8 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
+export const maxDuration = 30;
+
 export async function POST(request: NextRequest) {
   try {
     // Rate limiting
@@ -14,92 +16,70 @@ export async function POST(request: NextRequest) {
 
     if (!allowed) {
       return NextResponse.json(
-        {
-          error: `Te veel requests. Max 50 per uur. Probeer later opnieuw.`,
-          resetAt,
-        },
+        { error: `Te veel requests. Max 50 per uur. Probeer later opnieuw.`, resetAt },
         { status: 429 }
       );
     }
 
-    const { photoUrl, instruction, photoWidth, photoHeight } =
+    const { photoBase64, mediaType, instruction, photoWidth, photoHeight } =
       await request.json();
 
-    if (!photoUrl || !instruction) {
+    if (!photoBase64 || !instruction || !photoWidth || !photoHeight) {
       return NextResponse.json(
-        { error: "Missing required fields" },
+        { error: "Velden ontbreken: foto, instructie, breedte of hoogte" },
         { status: 400 }
       );
     }
 
-    // Build image source — base64 dataUrl or remote URL
-    type MediaType = "image/jpeg" | "image/png" | "image/gif" | "image/webp";
-    type ImageSource =
-      | { type: "base64"; media_type: MediaType; data: string }
-      | { type: "url"; url: string };
+    // Validate media type
+    const validTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"] as const;
+    const mt = validTypes.includes(mediaType) ? mediaType : "image/jpeg";
 
-    let imageSource: ImageSource;
-    if (photoUrl.startsWith("data:")) {
-      const [header, data] = photoUrl.split(",");
-      let mediaType = header.replace("data:", "").replace(";base64", "") as MediaType;
-      // Default to jpeg if unknown format
-      if (!["image/jpeg", "image/png", "image/gif", "image/webp"].includes(mediaType)) {
-        mediaType = "image/jpeg";
-      }
-      imageSource = { type: "base64", media_type: mediaType, data };
-    } else {
-      imageSource = { type: "url", url: photoUrl };
-    }
-
-    // Call Claude with vision to analyze placement
-    // Note: Claude doesn't need the SVG — it analyzes the photo and uses the instruction
     const message = await anthropic.messages.create({
       model: "claude-haiku-4-5-20251001",
-      max_tokens: 256,
+      max_tokens: 300,
       messages: [
         {
           role: "user",
           content: [
             {
               type: "image",
-              source: imageSource,
+              source: {
+                type: "base64",
+                media_type: mt as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
+                data: photoBase64,
+              },
             },
             {
               type: "text",
-              text: `Je ziet een foto van een gebouw/pand. Iemand wil een ontwerp erop plaatsen met deze instructie: "${instruction}"
+              text: `Je ziet een foto van een gebouw/pand (${photoWidth}x${photoHeight} pixels).
 
-Analyseer de foto en bepaal de beste locatie voor het ontwerp.
-Geef de coördinaten van 4 hoekpunten in dit formaat (ALLEEN deze 4 regels, niks anders):
-topLeft: x,y
-topRight: x,y
-bottomRight: x,y
-bottomLeft: x,y
+Instructie van de gebruiker: "${instruction}"
 
-De foto is ${photoWidth}px breed en ${photoHeight}px hoog.
-Zorg dat alle coördinaten tussen 0 en die grenzen liggen.`,
+Bepaal de 4 hoekpunten waar het ontwerp geplaatst moet worden.
+Antwoord ALLEEN in dit exacte formaat (4 regels, niks anders):
+topLeft: X,Y
+topRight: X,Y
+bottomRight: X,Y
+bottomLeft: X,Y
+
+Vervang X en Y door pixelwaarden (gehele getallen, 0-${photoWidth} voor X, 0-${photoHeight} voor Y).`,
             },
           ],
         },
       ],
     });
 
-    // Parse Claude's response
     const responseText =
       message.content[0].type === "text" ? message.content[0].text : "";
 
     const corners = parseCorners(responseText, photoWidth, photoHeight);
 
-    return NextResponse.json({
-      corners,
-      remaining,
-    });
+    return NextResponse.json({ corners, remaining, raw: responseText });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : JSON.stringify(error);
     console.error("Claude API error:", msg);
-    return NextResponse.json(
-      { error: `Claude API fout: ${msg}` },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: `Claude API fout: ${msg}` }, { status: 500 });
   }
 }
 
@@ -107,8 +87,7 @@ function parseCorners(
   text: string,
   photoWidth: number,
   photoHeight: number
-): { topLeft: [number, number]; topRight: [number, number]; bottomRight: [number, number]; bottomLeft: [number, number] } {
-  const lines = text.split("\n");
+) {
   const corners = {
     topLeft: [50, 50] as [number, number],
     topRight: [photoWidth - 50, 50] as [number, number],
@@ -116,12 +95,20 @@ function parseCorners(
     bottomLeft: [50, photoHeight - 50] as [number, number],
   };
 
-  for (const line of lines) {
-    const match = line.match(/(topLeft|topRight|bottomRight|bottomLeft):\s*(\d+)\s*,\s*(\d+)/);
+  // Match patterns like "topLeft: 123,456" or "topLeft: 123, 456"
+  const patterns: [string, keyof typeof corners][] = [
+    ["topLeft", "topLeft"],
+    ["topRight", "topRight"],
+    ["bottomRight", "bottomRight"],
+    ["bottomLeft", "bottomLeft"],
+  ];
+
+  for (const [pattern, key] of patterns) {
+    const regex = new RegExp(pattern + "\\s*:\\s*(\\d+)\\s*,\\s*(\\d+)");
+    const match = text.match(regex);
     if (match) {
-      const key = match[1] as keyof typeof corners;
-      const x = Math.max(0, Math.min(photoWidth, parseInt(match[2])));
-      const y = Math.max(0, Math.min(photoHeight, parseInt(match[3])));
+      const x = Math.max(0, Math.min(photoWidth, parseInt(match[1])));
+      const y = Math.max(0, Math.min(photoHeight, parseInt(match[2])));
       corners[key] = [x, y];
     }
   }

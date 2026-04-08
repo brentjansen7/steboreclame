@@ -45,8 +45,8 @@ export default function PreviewPage() {
     setDesignSvg(text);
   }
 
-  // Resize image to max 800px for Claude API
-  function resizeImage(dataUrl: string, maxSize: number): Promise<string> {
+  // Resize image and return { base64, mediaType, width, height }
+  function prepareImageForApi(dataUrl: string, maxSize: number): Promise<{ base64: string; mediaType: string; w: number; h: number }> {
     return new Promise((resolve) => {
       const img = new Image();
       img.onload = () => {
@@ -56,7 +56,10 @@ export default function PreviewPage() {
         canvas.height = Math.round(img.height * scale);
         const ctx = canvas.getContext("2d")!;
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL("image/jpeg", 0.7));
+        // Use low quality JPEG to keep payload small
+        const jpegDataUrl = canvas.toDataURL("image/jpeg", 0.5);
+        const base64 = jpegDataUrl.split(",")[1];
+        resolve({ base64, mediaType: "image/jpeg", w: canvas.width, h: canvas.height });
       };
       img.src = dataUrl;
     });
@@ -69,18 +72,20 @@ export default function PreviewPage() {
     setAnalyzing(true);
 
     try {
-      const smallPhoto = await resizeImage(photoUrl, 800);
-      const w = canvasRef?.width || 800;
-      const h = canvasRef?.height || 500;
+      // Prepare small JPEG for Claude — use canvas dimensions for coordinate mapping
+      const canvasW = canvasRef?.width || 800;
+      const canvasH = canvasRef?.height || 500;
+      const { base64, mediaType } = await prepareImageForApi(photoUrl, 600);
 
       const response = await fetch("/api/analyze-placement", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          photoUrl: smallPhoto,
+          photoBase64: base64,
+          mediaType,
           instruction,
-          photoWidth: w,
-          photoHeight: h,
+          photoWidth: canvasW,
+          photoHeight: canvasH,
         }),
       });
 
