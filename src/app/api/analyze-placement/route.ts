@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { photoUrl, designSvg, instruction, photoWidth, photoHeight } =
+    const { photoUrl, instruction, photoWidth, photoHeight } =
       await request.json();
 
     if (!photoUrl || !instruction) {
@@ -47,6 +47,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Call Claude with vision to analyze placement
+    // Note: Claude doesn't need the SVG — it analyzes the photo and uses the instruction
     const message = await anthropic.messages.create({
       model: "claude-3-5-haiku-20241022",
       max_tokens: 256,
@@ -60,9 +61,9 @@ export async function POST(request: NextRequest) {
             },
             {
               type: "text",
-              text: `Je ziet een foto van een gebouw/pand. Een ontwerper wil een logo/tekstontwerp erop plaatsen met deze instructie: "${instruction}"
+              text: `Je ziet een foto van een gebouw/pand. Iemand wil een ontwerp erop plaatsen met deze instructie: "${instruction}"
 
-Analyseer de foto en bepaal waar het ontwerp moet worden geplaatst.
+Analyseer de foto en bepaal de beste locatie voor het ontwerp.
 Geef de coördinaten van 4 hoekpunten in dit formaat (ALLEEN deze 4 regels, niks anders):
 topLeft: x,y
 topRight: x,y
@@ -70,7 +71,7 @@ bottomRight: x,y
 bottomLeft: x,y
 
 De foto is ${photoWidth}px breed en ${photoHeight}px hoog.
-Zorg dat de coördinaten passen binnen die afmetingen.`,
+Zorg dat alle coördinaten tussen 0 en die grenzen liggen.`,
             },
           ],
         },

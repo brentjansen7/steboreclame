@@ -110,7 +110,6 @@ export default function PreviewPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           photoUrl,
-          designSvg,
           instruction,
           photoWidth: canvasRef?.width || 800,
           photoHeight: canvasRef?.height || 500,
