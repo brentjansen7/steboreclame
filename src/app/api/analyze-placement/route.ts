@@ -25,11 +25,25 @@ export async function POST(request: NextRequest) {
     const { photoUrl, designSvg, instruction, photoWidth, photoHeight } =
       await request.json();
 
-    if (!photoUrl || !designSvg || !instruction) {
+    if (!photoUrl || !instruction) {
       return NextResponse.json(
         { error: "Missing required fields" },
         { status: 400 }
       );
+    }
+
+    // Build image source — base64 dataUrl or remote URL
+    type ImageSource =
+      | { type: "base64"; media_type: string; data: string }
+      | { type: "url"; url: string };
+
+    let imageSource: ImageSource;
+    if (photoUrl.startsWith("data:")) {
+      const [header, data] = photoUrl.split(",");
+      const mediaType = header.replace("data:", "").replace(";base64", "");
+      imageSource = { type: "base64", media_type: mediaType, data };
+    } else {
+      imageSource = { type: "url", url: photoUrl };
     }
 
     // Call Claude with vision to analyze placement
@@ -42,10 +56,7 @@ export async function POST(request: NextRequest) {
           content: [
             {
               type: "image",
-              source: {
-                type: "url",
-                url: photoUrl,
-              },
+              source: imageSource,
             },
             {
               type: "text",
