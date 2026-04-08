@@ -98,6 +98,23 @@ export default function PreviewPage() {
 
   const [aiError, setAiError] = useState<string | null>(null);
 
+  // Resize image to max 800px for Claude API (avoids payload too large)
+  function resizeImage(dataUrl: string, maxSize: number): Promise<string> {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(maxSize / img.width, maxSize / img.height, 1);
+        const canvas = document.createElement("canvas");
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
+        const ctx = canvas.getContext("2d")!;
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", 0.7));
+      };
+      img.src = dataUrl;
+    });
+  }
+
   async function analyzeWithClaude() {
     setAiError(null);
     if (!photoUrl) { setAiError("Upload eerst een gevelfoto."); return; }
@@ -105,14 +122,19 @@ export default function PreviewPage() {
     setAnalyzing(true);
 
     try {
+      // Resize photo to reduce payload size
+      const smallPhoto = await resizeImage(photoUrl, 800);
+      const w = canvasRef?.width || 800;
+      const h = canvasRef?.height || 500;
+
       const response = await fetch("/api/analyze-placement", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          photoUrl,
+          photoUrl: smallPhoto,
           instruction,
-          photoWidth: canvasRef?.width || 800,
-          photoHeight: canvasRef?.height || 500,
+          photoWidth: w,
+          photoHeight: h,
         }),
       });
 
@@ -270,8 +292,8 @@ export default function PreviewPage() {
             designSvg={designSvg}
             onCornersChange={handleCornersChange}
             onExport={handleExport}
-            canvasRef={canvasRef}
             setCanvasRef={setCanvasRef}
+            initialCorners={corners}
           />
         </div>
       </div>

@@ -33,14 +33,19 @@ export async function POST(request: NextRequest) {
     }
 
     // Build image source — base64 dataUrl or remote URL
+    type MediaType = "image/jpeg" | "image/png" | "image/gif" | "image/webp";
     type ImageSource =
-      | { type: "base64"; media_type: string; data: string }
+      | { type: "base64"; media_type: MediaType; data: string }
       | { type: "url"; url: string };
 
     let imageSource: ImageSource;
     if (photoUrl.startsWith("data:")) {
       const [header, data] = photoUrl.split(",");
-      const mediaType = header.replace("data:", "").replace(";base64", "");
+      let mediaType = header.replace("data:", "").replace(";base64", "") as MediaType;
+      // Default to jpeg if unknown format
+      if (!["image/jpeg", "image/png", "image/gif", "image/webp"].includes(mediaType)) {
+        mediaType = "image/jpeg";
+      }
       imageSource = { type: "base64", media_type: mediaType, data };
     } else {
       imageSource = { type: "url", url: photoUrl };
@@ -88,10 +93,11 @@ Zorg dat alle coördinaten tussen 0 en die grenzen liggen.`,
       corners,
       remaining,
     });
-  } catch (error) {
-    console.error("Claude API error:", error);
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : JSON.stringify(error);
+    console.error("Claude API error:", msg);
     return NextResponse.json(
-      { error: "Failed to analyze placement" },
+      { error: `Claude API fout: ${msg}` },
       { status: 500 }
     );
   }

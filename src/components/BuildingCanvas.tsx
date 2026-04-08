@@ -14,29 +14,41 @@ interface BuildingCanvasProps {
 
 type HandleKey = keyof CornerPoints;
 
+interface BuildingCanvasPropsWithCorners extends BuildingCanvasProps {
+  initialCorners?: CornerPoints | null;
+}
+
 export default function BuildingCanvas({
   buildingPhotoUrl,
   designSvg,
   onCornersChange,
   onExport,
-  canvasRef: externalCanvasRef,
   setCanvasRef,
-}: BuildingCanvasProps) {
+  initialCorners,
+}: BuildingCanvasPropsWithCorners) {
   const internalCanvasRef = useRef<HTMLCanvasElement>(null);
-  const canvasRef = externalCanvasRef ? { current: externalCanvasRef } : internalCanvasRef;
 
-  useEffect(() => {
-    if (canvasRef.current && setCanvasRef) {
-      setCanvasRef(canvasRef.current);
-    }
-  }, [setCanvasRef, canvasRef]);
+  const callbackRef = useCallback((node: HTMLCanvasElement | null) => {
+    (internalCanvasRef as React.MutableRefObject<HTMLCanvasElement | null>).current = node;
+    if (setCanvasRef) setCanvasRef(node);
+  }, [setCanvasRef]);
+
   const [photo, setPhoto] = useState<HTMLImageElement | null>(null);
-  const [corners, setCorners] = useState<CornerPoints>({
-    topLeft: [100, 100],
-    topRight: [400, 100],
-    bottomRight: [400, 300],
-    bottomLeft: [100, 300],
-  });
+  const [corners, setCorners] = useState<CornerPoints>(
+    initialCorners || {
+      topLeft: [100, 100],
+      topRight: [400, 100],
+      bottomRight: [400, 300],
+      bottomLeft: [100, 300],
+    }
+  );
+
+  // Update corners when parent provides new ones (e.g., from Claude AI)
+  useEffect(() => {
+    if (initialCorners) {
+      setCorners(initialCorners);
+    }
+  }, [initialCorners]);
   const [dragging, setDragging] = useState<HandleKey | null>(null);
   const [designCanvas, setDesignCanvas] = useState<HTMLCanvasElement | null>(
     null
@@ -64,7 +76,7 @@ export default function BuildingCanvas({
 
   // Render canvas
   const render = useCallback(async () => {
-    const canvas = canvasRef.current;
+    const canvas = internalCanvasRef.current;
     if (!canvas || !photo) return;
 
     const ctx = canvas.getContext("2d")!;
@@ -128,7 +140,7 @@ export default function BuildingCanvas({
   const getCanvasPoint = (
     e: React.MouseEvent
   ): [number, number] => {
-    const canvas = canvasRef.current!;
+    const canvas = internalCanvasRef.current!;
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
@@ -179,7 +191,7 @@ export default function BuildingCanvas({
   return (
     <div>
       <canvas
-        ref={canvasRef}
+        ref={callbackRef}
         className="w-full rounded-xl border border-gray-200 cursor-crosshair"
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
@@ -189,7 +201,7 @@ export default function BuildingCanvas({
       <div className="flex gap-3 mt-4">
         <button
           onClick={() => {
-            if (canvasRef.current) onExport(canvasRef.current);
+            if (internalCanvasRef.current) onExport(internalCanvasRef.current);
           }}
           className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
         >
