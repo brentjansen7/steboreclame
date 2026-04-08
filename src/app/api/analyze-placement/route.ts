@@ -52,18 +52,19 @@ export async function POST(request: NextRequest) {
             },
             {
               type: "text",
-              text: `Je ziet een foto van een gebouw/pand (${photoWidth}x${photoHeight} pixels).
+              text: `Je ziet een foto van een gebouw/pand. De afbeelding is exact ${photoWidth} pixels breed en ${photoHeight} pixels hoog.
 
-Instructie van de gebruiker: "${instruction}"
+Instructie: "${instruction}"
 
-Bepaal de 4 hoekpunten waar het ontwerp geplaatst moet worden.
-Antwoord ALLEEN in dit exacte formaat (4 regels, niks anders):
+Analyseer de foto zorgvuldig. Zoek het exacte gebied waar het ontwerp geplaatst moet worden volgens de instructie. Let op teksten, logo's, borden, en gevelelementen.
+
+Geef de 4 hoekpunten van het doelgebied in PIXELS. De coördinaten moeten exact het gebied omlijnen waar het ontwerp moet komen. Links boven is (0,0), rechts onder is (${photoWidth},${photoHeight}).
+
+Antwoord ALLEEN in dit formaat (4 regels, niks anders):
 topLeft: X,Y
 topRight: X,Y
 bottomRight: X,Y
-bottomLeft: X,Y
-
-Vervang X en Y door pixelwaarden (gehele getallen, 0-${photoWidth} voor X, 0-${photoHeight} voor Y).`,
+bottomLeft: X,Y`,
             },
           ],
         },

@@ -72,10 +72,10 @@ export default function PreviewPage() {
     setAnalyzing(true);
 
     try {
-      // Prepare small JPEG for Claude — use canvas dimensions for coordinate mapping
-      const canvasW = canvasRef?.width || 800;
-      const canvasH = canvasRef?.height || 500;
-      const { base64, mediaType } = await prepareImageForApi(photoUrl, 600);
+      // Prepare small JPEG for Claude — send resized dimensions, scale back after
+      const actualW = canvasRef?.width || 800;
+      const actualH = canvasRef?.height || 500;
+      const { base64, mediaType, w: smallW, h: smallH } = await prepareImageForApi(photoUrl, 600);
 
       const response = await fetch("/api/analyze-placement", {
         method: "POST",
@@ -84,8 +84,8 @@ export default function PreviewPage() {
           photoBase64: base64,
           mediaType,
           instruction,
-          photoWidth: canvasW,
-          photoHeight: canvasH,
+          photoWidth: smallW,
+          photoHeight: smallH,
         }),
       });
 
@@ -102,7 +102,16 @@ export default function PreviewPage() {
       if (data.error) {
         setAiError(data.error);
       } else if (data.corners) {
-        setCorners(data.corners);
+        // Scale corners from small image coordinates to actual canvas coordinates
+        const scaleX = actualW / smallW;
+        const scaleY = actualH / smallH;
+        const scaled = {
+          topLeft: [Math.round(data.corners.topLeft[0] * scaleX), Math.round(data.corners.topLeft[1] * scaleY)] as [number, number],
+          topRight: [Math.round(data.corners.topRight[0] * scaleX), Math.round(data.corners.topRight[1] * scaleY)] as [number, number],
+          bottomRight: [Math.round(data.corners.bottomRight[0] * scaleX), Math.round(data.corners.bottomRight[1] * scaleY)] as [number, number],
+          bottomLeft: [Math.round(data.corners.bottomLeft[0] * scaleX), Math.round(data.corners.bottomLeft[1] * scaleY)] as [number, number],
+        };
+        setCorners(scaled);
         setAiError(null);
       } else {
         setAiError("Geen plaatsing ontvangen van Claude. Probeer opnieuw.");
