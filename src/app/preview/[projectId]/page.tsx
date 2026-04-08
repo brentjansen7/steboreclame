@@ -3,17 +3,15 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
 import FileUpload from "@/components/FileUpload";
 import BuildingCanvas from "@/components/BuildingCanvas";
 import { downloadPreview } from "@/lib/perspectiveEngine";
 import type { CornerPoints } from "@/lib/perspectiveEngine";
-import type { Project, Design } from "@/types";
+import type { Project } from "@/types";
 
 export default function PreviewPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const [project, setProject] = useState<Project | null>(null);
-  const [designs, setDesigns] = useState<Design[]>([]);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [designSvg, setDesignSvg] = useState<string | null>(null);
   const [corners, setCorners] = useState<CornerPoints | null>(null);
@@ -21,92 +19,41 @@ export default function PreviewPage() {
   const [instruction, setInstruction] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
   const [canvasRef, setCanvasRef] = useState<HTMLCanvasElement | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   useEffect(() => {
-    loadData();
+    loadProject();
   }, [projectId]);
 
-  async function loadData() {
-    const { data: proj } = await supabase
-      .from("projects")
-      .select("*")
-      .eq("id", projectId)
-      .single();
-    setProject(proj);
-
-    const { data: des } = await supabase
-      .from("designs")
-      .select("*")
-      .eq("project_id", projectId);
-    setDesigns(des || []);
-
-    const { data: preview } = await supabase
-      .from("previews")
-      .select("*")
-      .eq("project_id", projectId)
-      .single();
-
-    if (preview) {
-      const { data: photoData } = supabase.storage
-        .from("photos")
-        .getPublicUrl(preview.photo_path);
-      setPhotoUrl(photoData.publicUrl);
-      setCorners(preview.corners as unknown as CornerPoints);
+  async function loadProject() {
+    try {
+      const res = await fetch(`/api/projects`);
+      const projects = await res.json();
+      const proj = projects.find((p: Project) => p.id === projectId);
+      setProject(proj || null);
+    } catch {
+      // ignore
     }
-
-    if (des && des.length > 0) {
-      const { data: svgFile } = await supabase.storage
-        .from("designs")
-        .download(des[0].file_path);
-      if (svgFile) {
-        setDesignSvg(await svgFile.text());
-      }
-    }
-
     setLoading(false);
   }
 
-  async function handlePhotoLoaded(
-    dataUrl: string,
-    fileName: string,
-    file: File
-  ) {
-    // Use local base64 dataUrl directly — no Supabase needed for display
+  function handlePhotoLoaded(dataUrl: string) {
     setPhotoUrl(dataUrl);
-
-    // Try to save to Supabase in background (may fail behind firewall)
-    try {
-      const filePath = `${projectId}/${Date.now()}-${fileName}`;
-      await supabase.storage.from("photos").upload(filePath, file);
-      await supabase.from("previews").upsert(
-        {
-          project_id: projectId,
-          photo_path: filePath,
-          corners: corners || {
-            topLeft: [100, 100],
-            topRight: [400, 100],
-            bottomRight: [400, 300],
-            bottomLeft: [100, 300],
-          },
-        },
-        { onConflict: "project_id" }
-      );
-    } catch {
-      // Silently ignore — local display works without Supabase
-    }
   }
 
-  const [aiError, setAiError] = useState<string | null>(null);
+  function handleSvgLoaded(text: string) {
+    setDesignSvg(text);
+  }
 
-  // Resize image to max 800px for Claude API (avoids payload too large)
+  // Resize image to max 800px for Claude API
   function resizeImage(dataUrl: string, maxSize: number): Promise<string> {
     return new Promise((resolve) => {
       const img = new Image();
       img.onload = () => {
         const scale = Math.min(maxSize / img.width, maxSize / img.height, 1);
         const canvas = document.createElement("canvas");
-        canvas.width = img.width * scale;
-        canvas.height = img.height * scale;
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
         const ctx = canvas.getContext("2d")!;
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
         resolve(canvas.toDataURL("image/jpeg", 0.7));
@@ -122,7 +69,6 @@ export default function PreviewPage() {
     setAnalyzing(true);
 
     try {
-      // Resize photo to reduce payload size
       const smallPhoto = await resizeImage(photoUrl, 800);
       const w = canvasRef?.width || 800;
       const h = canvasRef?.height || 500;
@@ -152,41 +98,12 @@ export default function PreviewPage() {
     setAnalyzing(false);
   }
 
-  async function handleCornersChange(newCorners: CornerPoints) {
+  function handleCornersChange(newCorners: CornerPoints) {
     setCorners(newCorners);
-    await supabase
-      .from("previews")
-      .update({ corners: newCorners as unknown as Record<string, unknown> })
-      .eq("project_id", projectId);
   }
 
-  async function handleExport(canvas: HTMLCanvasElement) {
+  function handleExport(canvas: HTMLCanvasElement) {
     downloadPreview(canvas, `${project?.name || "preview"}.png`);
-
-    canvas.toBlob(async (blob) => {
-      if (!blob) return;
-      const filePath = `${projectId}/preview-${Date.now()}.png`;
-      await supabase.storage.from("exports").upload(filePath, blob);
-      await supabase
-        .from("previews")
-        .update({ export_path: filePath })
-        .eq("project_id", projectId);
-    });
-  }
-
-  async function handleDesignSelect(designId: string) {
-    const design = designs.find((d) => d.id === designId);
-    if (!design) return;
-    try {
-      const { data } = await supabase.storage
-        .from("designs")
-        .download(design.file_path);
-      if (data) {
-        setDesignSvg(await data.text());
-      }
-    } catch {
-      // Silently ignore if Supabase is unreachable
-    }
   }
 
   if (loading) return <p className="text-gray-500">Laden...</p>;
@@ -216,7 +133,6 @@ export default function PreviewPage() {
       </div>
 
       <div className="grid grid-cols-3 gap-6">
-        {/* Left: uploads + instruction */}
         <div className="space-y-4">
           <div>
             <h3 className="font-semibold mb-2">Gevelfoto</h3>
@@ -230,62 +146,44 @@ export default function PreviewPage() {
 
           <div>
             <h3 className="font-semibold mb-2">Ontwerp (SVG)</h3>
-            {designs.length > 0 && (
-              <select
-                onChange={(e) => handleDesignSelect(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg mb-2"
-              >
-                {designs.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.file_name}
-                  </option>
-                ))}
-              </select>
-            )}
             <FileUpload
               accept=".svg"
-              label="Of upload SVG lokaal"
-              onFileLoaded={(text) => setDesignSvg(text)}
+              label="Upload SVG ontwerp"
+              onFileLoaded={handleSvgLoaded}
               readAsText
             />
           </div>
 
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <h3 className="font-semibold mb-2 text-sm">
-                AI Plaatsing Assistant
-              </h3>
-              <textarea
-                value={instruction}
-                onChange={(e) => setInstruction(e.target.value)}
-                placeholder="Bijv. 'plaats het logo linksboven op de gevel' of 'zet de tekst midden op het raam'"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                rows={4}
-              />
-              <button
-                onClick={analyzeWithClaude}
-                disabled={analyzing || !instruction.trim()}
-                className="w-full px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium transition-colors"
-              >
-                {analyzing ? "Claude analyseert..." : "AI plaatsing berekenen"}
-              </button>
-              {aiError && (
-                <p className="text-xs text-red-600 mt-2 font-medium">{aiError}</p>
-              )}
-              <p className="text-xs text-gray-500 mt-2">
-                Claude Vision bepaalt automatisch waar het ontwerp moet op basis van je instructie
-              </p>
-            </div>
+            <h3 className="font-semibold mb-2 text-sm">AI Plaatsing Assistant</h3>
+            <textarea
+              value={instruction}
+              onChange={(e) => setInstruction(e.target.value)}
+              placeholder="Bijv. 'plaats het logo op de gevel boven de deur' of 'zet het ontwerp over het blokker logo'"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              rows={3}
+            />
+            <button
+              onClick={analyzeWithClaude}
+              disabled={analyzing || !instruction.trim() || !photoUrl}
+              className="w-full px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium transition-colors"
+            >
+              {analyzing ? "Claude analyseert..." : "AI plaatsing berekenen"}
+            </button>
+            {aiError && (
+              <p className="text-xs text-red-600 mt-2 font-medium">{aiError}</p>
+            )}
+          </div>
 
           <div className="text-sm text-gray-500 space-y-1">
             <p>1. Upload een foto van het pand</p>
-            <p>2. Selecteer het ontwerp</p>
-            <p>3. Geef instructie aan Claude</p>
-            <p>4. Sleep hoekpunten (optioneel)</p>
+            <p>2. Upload het SVG ontwerp</p>
+            <p>3. Geef instructie aan Claude AI</p>
+            <p>4. Of sleep de hoekpunten handmatig</p>
             <p>5. Exporteer als PNG</p>
           </div>
         </div>
 
-        {/* Right: canvas */}
         <div className="col-span-2">
           <BuildingCanvas
             buildingPhotoUrl={photoUrl}
