@@ -71,25 +71,29 @@ export default function PreviewPage() {
     fileName: string,
     file: File
   ) {
-    const filePath = `${projectId}/${Date.now()}-${fileName}`;
-    await supabase.storage.from("photos").upload(filePath, file);
+    // Use local base64 dataUrl directly — no Supabase needed for display
+    setPhotoUrl(dataUrl);
 
-    const { data } = supabase.storage.from("photos").getPublicUrl(filePath);
-    setPhotoUrl(data.publicUrl);
-
-    await supabase.from("previews").upsert(
-      {
-        project_id: projectId,
-        photo_path: filePath,
-        corners: corners || {
-          topLeft: [100, 100],
-          topRight: [400, 100],
-          bottomRight: [400, 300],
-          bottomLeft: [100, 300],
+    // Try to save to Supabase in background (may fail behind firewall)
+    try {
+      const filePath = `${projectId}/${Date.now()}-${fileName}`;
+      await supabase.storage.from("photos").upload(filePath, file);
+      await supabase.from("previews").upsert(
+        {
+          project_id: projectId,
+          photo_path: filePath,
+          corners: corners || {
+            topLeft: [100, 100],
+            topRight: [400, 100],
+            bottomRight: [400, 300],
+            bottomLeft: [100, 300],
+          },
         },
-      },
-      { onConflict: "project_id" }
-    );
+        { onConflict: "project_id" }
+      );
+    } catch {
+      // Silently ignore — local display works without Supabase
+    }
   }
 
   async function analyzeWithClaude() {
@@ -150,11 +154,15 @@ export default function PreviewPage() {
   async function handleDesignSelect(designId: string) {
     const design = designs.find((d) => d.id === designId);
     if (!design) return;
-    const { data } = await supabase.storage
-      .from("designs")
-      .download(design.file_path);
-    if (data) {
-      setDesignSvg(await data.text());
+    try {
+      const { data } = await supabase.storage
+        .from("designs")
+        .download(design.file_path);
+      if (data) {
+        setDesignSvg(await data.text());
+      }
+    } catch {
+      // Silently ignore if Supabase is unreachable
     }
   }
 
@@ -197,12 +205,12 @@ export default function PreviewPage() {
             />
           </div>
 
-          {designs.length > 0 && (
-            <div>
-              <h3 className="font-semibold mb-2">Ontwerp</h3>
+          <div>
+            <h3 className="font-semibold mb-2">Ontwerp (SVG)</h3>
+            {designs.length > 0 && (
               <select
                 onChange={(e) => handleDesignSelect(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg mb-2"
               >
                 {designs.map((d) => (
                   <option key={d.id} value={d.id}>
@@ -210,8 +218,14 @@ export default function PreviewPage() {
                   </option>
                 ))}
               </select>
-            </div>
-          )}
+            )}
+            <FileUpload
+              accept=".svg"
+              label="Of upload SVG lokaal"
+              onFileLoaded={(text) => setDesignSvg(text)}
+              readAsText={true}
+            />
+          </div>
 
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
               <h3 className="font-semibold mb-2 text-sm">
