@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
     // Call Claude with vision to analyze placement
     // Note: Claude doesn't need the SVG — it analyzes the photo and uses the instruction
     const message = await anthropic.messages.create({
-      model: "claude-3-5-haiku-20241022",
+      model: "claude-haiku-4-5-20251001",
       max_tokens: 256,
       messages: [
         {
