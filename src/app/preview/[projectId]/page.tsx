@@ -89,14 +89,27 @@ export default function PreviewPage() {
         }),
       });
 
-      const data = await response.json();
+      const text = await response.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        setAiError(`Server gaf ongeldig antwoord: ${text.substring(0, 100)}`);
+        setAnalyzing(false);
+        return;
+      }
+
       if (data.error) {
         setAiError(data.error);
       } else if (data.corners) {
         setCorners(data.corners);
+        setAiError(null);
+      } else {
+        setAiError("Geen plaatsing ontvangen van Claude. Probeer opnieuw.");
       }
     } catch (error) {
-      setAiError("Verbindingsfout. Probeer opnieuw.");
+      const msg = error instanceof Error ? error.message : "Onbekende fout";
+      setAiError(`Fout: ${msg}`);
       console.error("Analyse mislukt:", error);
     }
 
