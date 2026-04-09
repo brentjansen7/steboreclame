@@ -72,9 +72,14 @@ export default function PreviewPage() {
     setAnalyzing(true);
 
     try {
-      // Prepare small JPEG for Claude — send resized dimensions, scale back after
-      const actualW = canvasRef?.width || 800;
-      const actualH = canvasRef?.height || 500;
+      // Get real photo dimensions by loading the original image
+      const actualDims = await new Promise<{ w: number; h: number }>((resolve) => {
+        const img = new Image();
+        img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+        img.src = photoUrl!;
+      });
+      const actualW = actualDims.w;
+      const actualH = actualDims.h;
       const { base64, mediaType, w: smallW, h: smallH } = await prepareImageForApi(photoUrl, 600);
 
       const response = await fetch("/api/analyze-placement", {
