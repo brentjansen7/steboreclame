@@ -52,15 +52,15 @@ export async function POST(request: NextRequest) {
             },
             {
               type: "text",
-              text: `Look at this building photo and find: "${instruction}"
+              text: `Look at this building photo. Task: "${instruction}"
 
-You MUST respond with EXACTLY 4 lines in this format (percentages from 0 to 100):
-topLeftPct: 59.0,14.0
-topRightPct: 89.0,14.0
-bottomRightPct: 89.0,28.0
-bottomLeftPct: 59.0,28.0
+Find the exact bounding box of that element. Be precise — measure only the element itself, not the space around it. The element starts where its visible pixels begin and ends where they end.
 
-Replace those numbers with the actual bounding box of the element you found. X% goes left-to-right (0=left edge, 100=right edge). Y% goes top-to-bottom (0=top edge, 100=bottom edge). No other text.`,
+Respond with EXACTLY 4 lines (percentages, 0=left/top edge, 100=right/bottom edge):
+topLeftPct: X,Y
+topRightPct: X,Y
+bottomRightPct: X,Y
+bottomLeftPct: X,Y`,
             },
           ],
         },
