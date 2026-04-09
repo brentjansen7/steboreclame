@@ -135,7 +135,7 @@ export default function BuildingCanvas({
     if (liveEnd) return; // no handles while drawing
 
     // Handles — small filled circles at exact corners
-    const r = Math.max(8, Math.min(canvas.width, canvas.height) * 0.014);
+    const r = Math.max(5, Math.min(canvas.width, canvas.height) * 0.007);
     const pts: [number, number][] = [
       [x,     y    ],
       [x + w, y    ],
@@ -180,7 +180,7 @@ export default function BuildingCanvas({
   const hitHandle = (mx: number, my: number): HandleKey | null => {
     if (!rect) return null;
     const canvas = internalCanvasRef.current!;
-    const thresh = Math.max(24, Math.min(canvas.width, canvas.height) * 0.04);
+    const thresh = Math.max(14, Math.min(canvas.width, canvas.height) * 0.022);
     const { x, y, w, h } = rect;
     const pts: [HandleKey, number, number][] = [
       ["topLeft",     x,     y    ],
@@ -207,18 +207,13 @@ export default function BuildingCanvas({
   const onMouseMove = (e: React.MouseEvent) => {
     const [mx, my] = toCanvas(e);
     if (dragging && rect) {
-      // Move that specific corner → update rect
-      const { x, y, w, h } = rect;
-      let nx = x, ny = y, nw = w, nh = h;
-      if (dragging === "topLeft")     { nw = (x + w) - mx; nh = (y + h) - my; nx = mx; ny = my; }
-      if (dragging === "topRight")    { nw = mx - x;       nh = (y + h) - my;           ny = my; }
-      if (dragging === "bottomRight") { nw = mx - x;       nh = my - y; }
-      if (dragging === "bottomLeft")  { nw = (x + w) - mx; nh = my - y; nx = mx; }
-      if (nw > 4 && nh > 4) {
-        const nr = { x: nx, y: ny, w: nw, h: nh };
-        setRect(nr);
-        onCornersChange(rectToCorners(nr));
-      }
+      // Move only the dragged corner independently
+      const corners = rectToCorners(rect);
+      const updated = { ...corners, [dragging]: [mx, my] as [number, number] };
+      // Recompute rect from all 4 (possibly non-rectangular) points
+      const nr = cornersToRect(updated);
+      setRect(nr);
+      onCornersChange(updated);
       return;
     }
     if (dragStart) setLiveEnd([mx, my]);
