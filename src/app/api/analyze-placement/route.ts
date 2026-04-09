@@ -36,8 +36,8 @@ export async function POST(request: NextRequest) {
     const mt = validTypes.includes(mediaType) ? mediaType : "image/jpeg";
 
     const message = await anthropic.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 300,
+      model: "claude-sonnet-4-5-20250514",
+      max_tokens: 500,
       messages: [
         {
           role: "user",
@@ -52,15 +52,15 @@ export async function POST(request: NextRequest) {
             },
             {
               type: "text",
-              text: `Je ziet een foto van een gebouw/pand. De afbeelding is exact ${photoWidth} pixels breed en ${photoHeight} pixels hoog.
+              text: `This image is exactly ${photoWidth} pixels wide and ${photoHeight} pixels tall. Pixel (0,0) is the top-left corner.
 
-Instructie: "${instruction}"
+Task: "${instruction}"
 
-Analyseer de foto zorgvuldig. Zoek het exacte gebied waar het ontwerp geplaatst moet worden volgens de instructie. Let op teksten, logo's, borden, en gevelelementen.
+Step 1 — Carefully scan the entire image from left to right and top to bottom. Identify ALL visible text, logos, signs, and graphic elements. For each one, note its approximate position as a percentage of image width and height.
 
-Geef de 4 hoekpunten van het doelgebied in PIXELS. De coördinaten moeten exact het gebied omlijnen waar het ontwerp moet komen. Links boven is (0,0), rechts onder is (${photoWidth},${photoHeight}).
+Step 2 — Find the specific element mentioned in the task. Give its EXACT bounding box in pixels. Be precise — measure carefully to the edges of the element, not the area around it.
 
-Antwoord ALLEEN in dit formaat (4 regels, niks anders):
+Step 3 — Output ONLY these 4 lines (integers only, no other text):
 topLeft: X,Y
 topRight: X,Y
 bottomRight: X,Y
