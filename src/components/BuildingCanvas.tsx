@@ -10,6 +10,7 @@ interface BuildingCanvasProps {
   onExport: (canvas: HTMLCanvasElement) => void;
   setCanvasRef?: (canvas: HTMLCanvasElement | null) => void;
   initialCorners?: CornerPoints | null;
+  clickToPlace?: boolean;
 }
 
 type HandleKey = keyof CornerPoints;
@@ -21,6 +22,7 @@ export default function BuildingCanvas({
   onExport,
   setCanvasRef,
   initialCorners,
+  clickToPlace,
 }: BuildingCanvasProps) {
   const internalCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -159,14 +161,30 @@ export default function BuildingCanvas({
 
   const handleMouseDown = (e: React.MouseEvent) => {
     const [mx, my] = getCanvasPoint(e);
-    const threshold = Math.max(20, Math.min(internalCanvasRef.current?.width || 800, internalCanvasRef.current?.height || 600) * 0.025);
+    const canvas = internalCanvasRef.current!;
+    const threshold = Math.max(20, Math.min(canvas.width, canvas.height) * 0.025);
 
+    // Check if clicking a handle
     for (const [key, point] of Object.entries(corners) as [HandleKey, [number, number]][]) {
       const dist = Math.sqrt((mx - point[0]) ** 2 + (my - point[1]) ** 2);
       if (dist < threshold) {
         setDragging(key);
         return;
       }
+    }
+
+    // Click-to-place: no handle clicked → center design on click point
+    if (clickToPlace) {
+      const w = canvas.width * 0.35;
+      const h = w * 0.4;
+      const newCorners: CornerPoints = {
+        topLeft: [Math.round(mx - w / 2), Math.round(my - h / 2)],
+        topRight: [Math.round(mx + w / 2), Math.round(my - h / 2)],
+        bottomRight: [Math.round(mx + w / 2), Math.round(my + h / 2)],
+        bottomLeft: [Math.round(mx - w / 2), Math.round(my + h / 2)],
+      };
+      setCorners(newCorners);
+      onCornersChange(newCorners);
     }
   };
 

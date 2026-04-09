@@ -221,6 +221,11 @@ export default function PreviewPage() {
         </div>
 
         <div className="col-span-2">
+          {photoUrl && (
+            <p className="text-xs text-blue-600 mb-2 font-medium">
+              Klik op de foto om het ontwerp te plaatsen, of sleep de blauwe hoekpunten
+            </p>
+          )}
           <BuildingCanvas
             buildingPhotoUrl={photoUrl}
             designSvg={designSvg}
@@ -228,6 +233,7 @@ export default function PreviewPage() {
             onExport={handleExport}
             setCanvasRef={setCanvasRef}
             initialCorners={corners}
+            clickToPlace={true}
           />
         </div>
       </div>
