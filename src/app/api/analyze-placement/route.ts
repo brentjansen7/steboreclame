@@ -54,13 +54,15 @@ export async function POST(request: NextRequest) {
               type: "text",
               text: `Look at this building photo. Task: "${instruction}"
 
-Find the exact bounding box of that element. Be precise — measure only the element itself, not the space around it. The element starts where its visible pixels begin and ends where they end.
+Find the bounding box of that element (logo, sign, or text). Include the full sign/board it is on, not just the letters. Give coordinates as percentage of image size.
 
-Respond with EXACTLY 4 lines (percentages, 0=left/top edge, 100=right/bottom edge):
+Respond with EXACTLY 4 lines, no other text:
 topLeftPct: X,Y
 topRightPct: X,Y
 bottomRightPct: X,Y
-bottomLeftPct: X,Y`,
+bottomLeftPct: X,Y
+
+Where X is left-to-right percentage (0=left, 100=right) and Y is top-to-bottom percentage (0=top, 100=bottom).`,
             },
           ],
         },
