@@ -223,7 +223,7 @@ export default function PreviewPage() {
         <div className="col-span-2">
           {photoUrl && (
             <p className="text-xs text-blue-600 mb-2 font-medium">
-              Klik op de foto om het ontwerp te plaatsen, of sleep de blauwe hoekpunten
+              Sleep een gebied op de foto om het ontwerp daar te plaatsen — of versleep de blauwe hoekpunten
             </p>
           )}
           <BuildingCanvas

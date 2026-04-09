@@ -45,6 +45,8 @@ export default function BuildingCanvas({
     }
   );
   const [dragging, setDragging] = useState<HandleKey | null>(null);
+  const [selecting, setSelecting] = useState(false);
+  const [selectStart, setSelectStart] = useState<[number, number] | null>(null);
 
   // Update corners from parent (e.g. Claude AI)
   useEffect(() => {
@@ -173,32 +175,58 @@ export default function BuildingCanvas({
       }
     }
 
-    // Click-to-place: no handle clicked → center design on click point
+    // Start drag-to-select
     if (clickToPlace) {
-      const w = canvas.width * 0.35;
-      const h = w * 0.4;
-      const newCorners: CornerPoints = {
-        topLeft: [Math.round(mx - w / 2), Math.round(my - h / 2)],
-        topRight: [Math.round(mx + w / 2), Math.round(my - h / 2)],
-        bottomRight: [Math.round(mx + w / 2), Math.round(my + h / 2)],
-        bottomLeft: [Math.round(mx - w / 2), Math.round(my + h / 2)],
-      };
-      setCorners(newCorners);
-      onCornersChange(newCorners);
+      setSelecting(true);
+      setSelectStart([mx, my]);
     }
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!dragging) return;
     const [mx, my] = getCanvasPoint(e);
-    setCorners((prev) => {
-      const updated = { ...prev, [dragging]: [mx, my] as [number, number] };
-      onCornersChange(updated);
-      return updated;
-    });
+
+    if (dragging) {
+      setCorners((prev) => {
+        const updated = { ...prev, [dragging]: [mx, my] as [number, number] };
+        onCornersChange(updated);
+        return updated;
+      });
+      return;
+    }
+
+    // Live preview of selection rectangle
+    if (selecting && selectStart) {
+      const [sx, sy] = selectStart;
+      const newCorners: CornerPoints = {
+        topLeft: [Math.min(sx, mx), Math.min(sy, my)],
+        topRight: [Math.max(sx, mx), Math.min(sy, my)],
+        bottomRight: [Math.max(sx, mx), Math.max(sy, my)],
+        bottomLeft: [Math.min(sx, mx), Math.max(sy, my)],
+      };
+      setCorners(newCorners);
+    }
   };
 
-  const handleMouseUp = () => setDragging(null);
+  const handleMouseUp = (e: React.MouseEvent) => {
+    if (selecting && selectStart) {
+      const [mx, my] = getCanvasPoint(e);
+      const [sx, sy] = selectStart;
+      // Only apply if dragged enough (> 10px)
+      if (Math.abs(mx - sx) > 10 || Math.abs(my - sy) > 10) {
+        const newCorners: CornerPoints = {
+          topLeft: [Math.min(sx, mx), Math.min(sy, my)],
+          topRight: [Math.max(sx, mx), Math.min(sy, my)],
+          bottomRight: [Math.max(sx, mx), Math.max(sy, my)],
+          bottomLeft: [Math.min(sx, mx), Math.max(sy, my)],
+        };
+        setCorners(newCorners);
+        onCornersChange(newCorners);
+      }
+    }
+    setSelecting(false);
+    setSelectStart(null);
+    setDragging(null);
+  };
 
   if (!buildingPhotoUrl) {
     return (
@@ -217,6 +245,7 @@ export default function BuildingCanvas({
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
+        style={{ cursor: clickToPlace ? 'crosshair' : 'default' }}
       />
       <div className="flex gap-3 mt-4">
         <button
