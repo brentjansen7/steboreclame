@@ -52,19 +52,19 @@ export async function POST(request: NextRequest) {
             },
             {
               type: "text",
-              text: `This image is exactly ${photoWidth} pixels wide and ${photoHeight} pixels tall. Pixel (0,0) is the top-left corner.
+              text: `Analyze this building photo carefully.
 
 Task: "${instruction}"
 
-Step 1 — Carefully scan the entire image from left to right and top to bottom. Identify ALL visible text, logos, signs, and graphic elements. For each one, note its approximate position as a percentage of image width and height.
+Instructions:
+1. Find the exact element described in the task (logo, sign, text, etc.)
+2. Express its position as PERCENTAGES of the image dimensions (0% = left/top edge, 100% = right/bottom edge)
+3. Return ONLY these 4 lines with percentage values (use decimals like 57.5 if needed):
 
-Step 2 — Find the specific element mentioned in the task. Give its EXACT bounding box in pixels. Be precise — measure carefully to the edges of the element, not the area around it.
-
-Step 3 — Output ONLY these 4 lines (integers only, no other text):
-topLeft: X,Y
-topRight: X,Y
-bottomRight: X,Y
-bottomLeft: X,Y`,
+topLeftPct: X%,Y%
+topRightPct: X%,Y%
+bottomRightPct: X%,Y%
+bottomLeftPct: X%,Y%`,
             },
           ],
         },
@@ -96,21 +96,44 @@ function parseCorners(
     bottomLeft: [50, photoHeight - 50] as [number, number],
   };
 
-  // Match patterns like "topLeft: 123,456" or "topLeft: 123, 456"
-  const patterns: [string, keyof typeof corners][] = [
-    ["topLeft", "topLeft"],
-    ["topRight", "topRight"],
-    ["bottomRight", "bottomRight"],
-    ["bottomLeft", "bottomLeft"],
+  // Try percentage format first: "topLeftPct: 57.5%,13.2%"
+  const pctPatterns: [string, keyof typeof corners][] = [
+    ["topLeftPct", "topLeft"],
+    ["topRightPct", "topRight"],
+    ["bottomRightPct", "bottomRight"],
+    ["bottomLeftPct", "bottomLeft"],
   ];
 
-  for (const [pattern, key] of patterns) {
-    const regex = new RegExp(pattern + "\\s*:\\s*(\\d+)\\s*,\\s*(\\d+)");
+  let foundPct = false;
+  for (const [pattern, key] of pctPatterns) {
+    const regex = new RegExp(pattern + "\\s*:\\s*([\\d.]+)%?\\s*,\\s*([\\d.]+)%?");
     const match = text.match(regex);
     if (match) {
-      const x = Math.max(0, Math.min(photoWidth, parseInt(match[1])));
-      const y = Math.max(0, Math.min(photoHeight, parseInt(match[2])));
-      corners[key] = [x, y];
+      const xPct = parseFloat(match[1]);
+      const yPct = parseFloat(match[2]);
+      const x = Math.round((xPct / 100) * photoWidth);
+      const y = Math.round((yPct / 100) * photoHeight);
+      corners[key] = [Math.max(0, Math.min(photoWidth, x)), Math.max(0, Math.min(photoHeight, y))];
+      foundPct = true;
+    }
+  }
+
+  if (!foundPct) {
+    // Fallback: pixel format "topLeft: 123,456"
+    const patterns: [string, keyof typeof corners][] = [
+      ["topLeft", "topLeft"],
+      ["topRight", "topRight"],
+      ["bottomRight", "bottomRight"],
+      ["bottomLeft", "bottomLeft"],
+    ];
+    for (const [pattern, key] of patterns) {
+      const regex = new RegExp(pattern + "\\s*:\\s*(\\d+)\\s*,\\s*(\\d+)");
+      const match = text.match(regex);
+      if (match) {
+        const x = Math.max(0, Math.min(photoWidth, parseInt(match[1])));
+        const y = Math.max(0, Math.min(photoHeight, parseInt(match[2])));
+        corners[key] = [x, y];
+      }
     }
   }
 
