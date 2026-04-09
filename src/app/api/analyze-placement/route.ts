@@ -52,19 +52,15 @@ export async function POST(request: NextRequest) {
             },
             {
               type: "text",
-              text: `Analyze this building photo carefully.
+              text: `Look at this building photo and find: "${instruction}"
 
-Task: "${instruction}"
+You MUST respond with EXACTLY 4 lines in this format (percentages from 0 to 100):
+topLeftPct: 59.0,14.0
+topRightPct: 89.0,14.0
+bottomRightPct: 89.0,28.0
+bottomLeftPct: 59.0,28.0
 
-Instructions:
-1. Find the exact element described in the task (logo, sign, text, etc.)
-2. Express its position as PERCENTAGES of the image dimensions (0% = left/top edge, 100% = right/bottom edge)
-3. Return ONLY these 4 lines with percentage values (use decimals like 57.5 if needed):
-
-topLeftPct: X%,Y%
-topRightPct: X%,Y%
-bottomRightPct: X%,Y%
-bottomLeftPct: X%,Y%`,
+Replace those numbers with the actual bounding box of the element you found. X% goes left-to-right (0=left edge, 100=right edge). Y% goes top-to-bottom (0=top edge, 100=bottom edge). No other text.`,
             },
           ],
         },
