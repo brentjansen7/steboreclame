@@ -110,12 +110,16 @@ export default function PreviewPage() {
         // Scale corners from small image coordinates to actual canvas coordinates
         const scaleX = actualW / smallW;
         const scaleY = actualH / smallH;
+        console.log("Claude raw:", data.raw);
+        console.log("smallW/H:", smallW, smallH, "actualW/H:", actualW, actualH, "scale:", scaleX, scaleY);
+        console.log("corners before scale:", data.corners);
         const scaled = {
           topLeft: [Math.round(data.corners.topLeft[0] * scaleX), Math.round(data.corners.topLeft[1] * scaleY)] as [number, number],
           topRight: [Math.round(data.corners.topRight[0] * scaleX), Math.round(data.corners.topRight[1] * scaleY)] as [number, number],
           bottomRight: [Math.round(data.corners.bottomRight[0] * scaleX), Math.round(data.corners.bottomRight[1] * scaleY)] as [number, number],
           bottomLeft: [Math.round(data.corners.bottomLeft[0] * scaleX), Math.round(data.corners.bottomLeft[1] * scaleY)] as [number, number],
         };
+        console.log("corners after scale:", scaled);
         setCorners(scaled);
         setAiError(null);
       } else {
