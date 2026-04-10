@@ -114,17 +114,11 @@ export default function BuildingCanvas({
       ctx.globalAlpha = 1;
     }
 
-    // Outline connecting the 4 points in order
+    // Outline — bounding box (same as design bounds)
     ctx.strokeStyle = "#2563eb";
     ctx.lineWidth   = Math.max(2, canvas.width * 0.003);
     ctx.setLineDash([10, 5]);
-    ctx.beginPath();
-    ctx.moveTo(pts.topLeft[0],     pts.topLeft[1]);
-    ctx.lineTo(pts.topRight[0],    pts.topRight[1]);
-    ctx.lineTo(pts.bottomRight[0], pts.bottomRight[1]);
-    ctx.lineTo(pts.bottomLeft[0],  pts.bottomLeft[1]);
-    ctx.closePath();
-    ctx.stroke();
+    ctx.strokeRect(bx, by, bw, bh);
     ctx.setLineDash([]);
 
     // Small handles — size in canvas pixels that = ~7px on screen
@@ -190,10 +184,41 @@ export default function BuildingCanvas({
   const onMouseMove = (e: React.MouseEvent) => {
     const [mx, my] = toCanvas(e);
     if (dragging) {
-      // ONLY this dot moves — all others stay fixed
-      const updated = { ...pts, [dragging]: [mx, my] as [number, number] };
-      setPts(updated);
-      onCornersChange(updated);
+      // Drag a corner → recalc rectangle so dots sync with design
+      const xs = [pts.topLeft[0], pts.topRight[0], pts.bottomRight[0], pts.bottomLeft[0]];
+      const ys = [pts.topLeft[1], pts.topRight[1], pts.bottomRight[1], pts.bottomLeft[1]];
+      let x = Math.min(...xs), y = Math.min(...ys);
+      let w = Math.max(...xs) - x, h = Math.max(...ys) - y;
+
+      // Adjust rect based on which corner is dragged
+      if (dragging === "topLeft") {
+        w = (x + w) - mx;
+        h = (y + h) - my;
+        x = mx;
+        y = my;
+      } else if (dragging === "topRight") {
+        w = mx - x;
+        h = (y + h) - my;
+        y = my;
+      } else if (dragging === "bottomRight") {
+        w = mx - x;
+        h = my - y;
+      } else if (dragging === "bottomLeft") {
+        w = (x + w) - mx;
+        h = my - y;
+        x = mx;
+      }
+
+      if (w > 4 && h > 4) {
+        const newPts: CornerPoints = {
+          topLeft: [x, y],
+          topRight: [x + w, y],
+          bottomRight: [x + w, y + h],
+          bottomLeft: [x, y + h],
+        };
+        setPts(newPts);
+        onCornersChange(newPts);
+      }
       return;
     }
     if (selStart) setSelEnd([mx, my]);
