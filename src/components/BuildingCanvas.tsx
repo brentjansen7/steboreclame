@@ -189,10 +189,21 @@ export default function BuildingCanvas({
   const onMouseMove = (e: React.MouseEvent) => {
     const [mx, my] = toCanvas(e);
     if (dragging) {
-      // Move ONLY this point, others stay where they are
-      const updated = { ...pts, [dragging]: [mx, my] as [number, number] };
-      setPts(updated);
-      onCornersChange(updated);
+      // Keep rectangle aligned: opposite corner stays fixed
+      const xs = [pts.topLeft[0], pts.topRight[0], pts.bottomRight[0], pts.bottomLeft[0]];
+      const ys = [pts.topLeft[1], pts.topRight[1], pts.bottomRight[1], pts.bottomLeft[1]];
+      const minX = Math.min(...xs), maxX = Math.max(...xs);
+      const minY = Math.min(...ys), maxY = Math.max(...ys);
+
+      let newPts = { ...pts };
+      // Drag a corner, opposite corner stays fixed = rectangle stretches/shrinks
+      if (dragging === "topLeft")     { newPts = { topLeft: [mx, my], topRight: [maxX, my], bottomRight: [maxX, maxY], bottomLeft: [mx, maxY] }; }
+      if (dragging === "topRight")    { newPts = { topLeft: [minX, my], topRight: [mx, my], bottomRight: [mx, maxY], bottomLeft: [minX, maxY] }; }
+      if (dragging === "bottomRight") { newPts = { topLeft: [minX, minY], topRight: [mx, minY], bottomRight: [mx, my], bottomLeft: [minX, my] }; }
+      if (dragging === "bottomLeft")  { newPts = { topLeft: [mx, minY], topRight: [maxX, minY], bottomRight: [maxX, my], bottomLeft: [mx, my] }; }
+
+      setPts(newPts);
+      onCornersChange(newPts);
       return;
     }
     if (selStart) setSelEnd([mx, my]);
