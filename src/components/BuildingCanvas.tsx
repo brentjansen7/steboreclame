@@ -25,7 +25,7 @@ function drawWarped(
   bl: [number, number],
   alpha: number
 ) {
-  const steps = 60;
+  const steps = 200;
   const iw = img.naturalWidth || img.width;
   const ih = img.naturalHeight || img.height;
   const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -43,9 +43,9 @@ function drawWarped(
     const d1lx = lerp(tl[0], bl[0], t1), d1ly = lerp(tl[1], bl[1], t1); // bottom-left
     const d1rx = lerp(tr[0], br[0], t1), d1ry = lerp(tr[1], br[1], t1); // bottom-right
 
-    // Source strip y range
+    // Source strip y range — add 1px overlap to avoid gaps
     const srcY0 = t0 * ih;
-    const srcY1 = t1 * ih;
+    const srcY1 = Math.min(t1 * ih + 1, ih);
 
     // 3 source points → 3 dest points for affine transform
     // p0: (0, srcY0) → (d0lx, d0ly)
