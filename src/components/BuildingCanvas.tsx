@@ -189,32 +189,10 @@ export default function BuildingCanvas({
   const onMouseMove = (e: React.MouseEvent) => {
     const [mx, my] = toCanvas(e);
     if (dragging) {
-      // Only this corner moves — opposite corner stays exactly where it is
-      let newPts = { ...pts };
-      if (dragging === "topLeft") {
-        // topLeft moves, bottomRight stays
-        newPts.topLeft = [mx, my];
-        newPts.topRight = [pts.bottomRight[0], my];
-        newPts.bottomLeft = [mx, pts.bottomRight[1]];
-      } else if (dragging === "topRight") {
-        // topRight moves, bottomLeft stays
-        newPts.topRight = [mx, my];
-        newPts.topLeft = [pts.bottomLeft[0], my];
-        newPts.bottomRight = [mx, pts.bottomLeft[1]];
-      } else if (dragging === "bottomRight") {
-        // bottomRight moves, topLeft stays
-        newPts.bottomRight = [mx, my];
-        newPts.topRight = [mx, pts.topLeft[1]];
-        newPts.bottomLeft = [pts.topLeft[0], my];
-      } else if (dragging === "bottomLeft") {
-        // bottomLeft moves, topRight stays
-        newPts.bottomLeft = [mx, my];
-        newPts.topLeft = [mx, pts.topRight[1]];
-        newPts.bottomRight = [pts.topRight[0], my];
-      }
-
-      setPts(newPts);
-      onCornersChange(newPts);
+      // ONLY this dot moves — all others stay fixed
+      const updated = { ...pts, [dragging]: [mx, my] as [number, number] };
+      setPts(updated);
+      onCornersChange(updated);
       return;
     }
     if (selStart) setSelEnd([mx, my]);
