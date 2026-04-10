@@ -126,8 +126,10 @@ export default function BuildingCanvas({
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Small handles — each point independently
-    const r = Math.max(5, Math.min(canvas.width, canvas.height) * 0.008);
+    // Small handles — size in canvas pixels that = ~7px on screen
+    const displayWidth = canvasRef.current?.getBoundingClientRect().width || canvas.width;
+    const scale = canvas.width / displayWidth;
+    const r = Math.round(7 * scale); // always 7 CSS pixels on screen
     const keys: HandleKey[] = ["topLeft", "topRight", "bottomRight", "bottomLeft"];
     for (const key of keys) {
       const [px, py] = pts[key];
@@ -150,18 +152,23 @@ export default function BuildingCanvas({
   useEffect(() => { render(); }, [render]);
 
   const toCanvas = (e: React.MouseEvent): [number, number] => {
-    const c   = canvasRef.current!;
-    const cr  = c.getBoundingClientRect();
+    const c  = canvasRef.current!;
+    const cr = c.getBoundingClientRect();
+    // cr.width = CSS display width, c.width = actual canvas pixel width
+    const scaleX = c.width  / cr.width;
+    const scaleY = c.height / cr.height;
     return [
-      (e.clientX - cr.left) * (c.width  / cr.width),
-      (e.clientY - cr.top)  * (c.height / cr.height),
+      Math.round((e.clientX - cr.left) * scaleX),
+      Math.round((e.clientY - cr.top)  * scaleY),
     ];
   };
 
   const hitHandle = (mx: number, my: number): HandleKey | null => {
     if (!hasSelection) return null;
     const c      = canvasRef.current!;
-    const thresh = Math.max(16, Math.min(c.width, c.height) * 0.025);
+    const cr     = c.getBoundingClientRect();
+    const scale  = c.width / cr.width;
+    const thresh = 18 * scale; // 18 CSS px hit area around each dot
     for (const key of ["topLeft","topRight","bottomRight","bottomLeft"] as HandleKey[]) {
       const [px, py] = pts[key];
       if (Math.hypot(mx - px, my - py) < thresh) return key;
