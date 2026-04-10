@@ -164,7 +164,7 @@ export default function BuildingCanvas({
     // Draw design warped into the 4 points
     if (designImg) {
       drawWarped(ctx, designImg,
-        pts.topLeft, pts.topRight, pts.bottomRight, pts.bottomLeft, 0.85);
+        pts.topLeft, pts.topRight, pts.bottomRight, pts.bottomLeft, 1.0);
     }
 
     // Outline connecting the 4 dots
