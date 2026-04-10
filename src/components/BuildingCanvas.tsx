@@ -108,9 +108,23 @@ export default function BuildingCanvas({
     const bw = Math.max(...xs) - bx, bh = Math.max(...ys) - by;
 
     if (designImg && bw > 4 && bh > 4) {
+      ctx.save();
+
+      // Clip to quad shape (the 4 points)
+      ctx.beginPath();
+      ctx.moveTo(pts.topLeft[0],     pts.topLeft[1]);
+      ctx.lineTo(pts.topRight[0],    pts.topRight[1]);
+      ctx.lineTo(pts.bottomRight[0], pts.bottomRight[1]);
+      ctx.lineTo(pts.bottomLeft[0],  pts.bottomLeft[1]);
+      ctx.closePath();
+      ctx.clip();
+
+      // Draw design in bounding box (clipped to quad)
       ctx.globalAlpha = 0.85;
       ctx.drawImage(designImg, bx, by, bw, bh);
       ctx.globalAlpha = 1;
+
+      ctx.restore();
     }
 
     // Outline connecting the 4 points in order
