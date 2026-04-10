@@ -3,8 +3,6 @@
 import { useRef, useState, useEffect, useCallback } from "react";
 import type { CornerPoints } from "@/lib/perspectiveEngine";
 
-// Store rect as 2 anchor points; other 2 are always derived
-interface TwoPoint { tl: [number, number]; br: [number, number]; }
 type HandleKey = "topLeft" | "topRight" | "bottomRight" | "bottomLeft";
 
 interface BuildingCanvasProps {
@@ -17,25 +15,74 @@ interface BuildingCanvasProps {
   clickToPlace?: boolean;
 }
 
-function toTwoPoint(c: CornerPoints): TwoPoint {
-  const xs = [c.topLeft[0], c.topRight[0], c.bottomRight[0], c.bottomLeft[0]];
-  const ys = [c.topLeft[1], c.topRight[1], c.bottomRight[1], c.bottomLeft[1]];
-  return {
-    tl: [Math.min(...xs), Math.min(...ys)],
-    br: [Math.max(...xs), Math.max(...ys)],
-  };
+// Warp designImg into arbitrary quad (tl, tr, br, bl) using horizontal strip method
+function drawWarped(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  tl: [number, number],
+  tr: [number, number],
+  br: [number, number],
+  bl: [number, number],
+  alpha: number
+) {
+  const steps = 60;
+  const iw = img.naturalWidth || img.width;
+  const ih = img.naturalHeight || img.height;
+  const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+
+  for (let i = 0; i < steps; i++) {
+    const t0 = i / steps;
+    const t1 = (i + 1) / steps;
+
+    // Destination strip corners
+    const d0lx = lerp(tl[0], bl[0], t0), d0ly = lerp(tl[1], bl[1], t0);
+    const d0rx = lerp(tr[0], br[0], t0), d0ry = lerp(tr[1], br[1], t0);
+    const d1lx = lerp(tl[0], bl[0], t1), d1ly = lerp(tl[1], bl[1], t1);
+    const d1rx = lerp(tr[0], br[0], t1), d1ry = lerp(tr[1], br[1], t1);
+
+    // Source strip y range
+    const sy0 = t0 * ih;
+    const sy1 = t1 * ih;
+
+    // Affine transform: map source rect (0,sy0)→(iw,sy0)→(0,sy1) to dest strip
+    const sx0 = 0, sy0v = sy0, sx1 = iw, sx2 = 0, sy2v = sy1;
+    const dx0 = d0lx, dy0 = d0ly, dx1 = d0rx, dy1 = d0ry, dx2 = d1lx, dy2 = d1ly;
+
+    const det = (sx1 - sx0) * (sy2v - sy0v) - (sx2 - sx0) * (sy1v - sy0v);
+    if (Math.abs(det) < 0.001) continue;
+
+    const a = ((dx1 - dx0) * (sy2v - sy0v) - (dx2 - dx0) * (sy1v - sy0v)) / det;
+    const b = ((dy1 - dy0) * (sy2v - sy0v) - (dy2 - dy0) * (sy1v - sy0v)) / det;
+    const c = ((dx2 - dx0) * (sx1 - sx0) - (dx1 - dx0) * (sx2 - sx0)) / det;
+    const d = ((dy2 - dy0) * (sx1 - sx0) - (dy1 - dy0) * (sx2 - sx0)) / det;
+    const e = dx0 - a * sx0 - c * sy0v;
+    const f = dy0 - b * sx0 - d * sy0v;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(d0lx, d0ly);
+    ctx.lineTo(d0rx, d0ry);
+    ctx.lineTo(d1rx, d1ry);
+    ctx.lineTo(d1lx, d1ly);
+    ctx.closePath();
+    ctx.clip();
+    ctx.setTransform(a, b, c, d, e, f);
+    ctx.drawImage(img, 0, 0);
+    ctx.restore();
+  }
+
+  ctx.restore();
 }
 
-function toCorners(tp: TwoPoint): CornerPoints {
-  const [x1, y1] = tp.tl;
-  const [x2, y2] = tp.br;
-  return {
-    topLeft:     [x1, y1],
-    topRight:    [x2, y1],
-    bottomRight: [x2, y2],
-    bottomLeft:  [x1, y2],
-  };
-}
+const DEFAULT_PTS: CornerPoints = {
+  topLeft:     [100, 100],
+  topRight:    [300, 100],
+  bottomRight: [300, 250],
+  bottomLeft:  [100, 250],
+};
 
 export default function BuildingCanvas({
   buildingPhotoUrl,
@@ -52,15 +99,16 @@ export default function BuildingCanvas({
     if (setCanvasRef) setCanvasRef(node);
   }, [setCanvasRef]);
 
-  const [photo, setPhoto]           = useState<HTMLImageElement | null>(null);
-  const [designImg, setDesignImg]   = useState<HTMLImageElement | null>(null);
-  const [tp, setTp]                 = useState<TwoPoint | null>(null);
-  const [dragging, setDragging]     = useState<HandleKey | null>(null);
-  const [selStart, setSelStart]     = useState<[number, number] | null>(null);
-  const [selEnd, setSelEnd]         = useState<[number, number] | null>(null);
+  const [photo, setPhoto]         = useState<HTMLImageElement | null>(null);
+  const [designImg, setDesignImg] = useState<HTMLImageElement | null>(null);
+  const [pts, setPts]             = useState<CornerPoints>(DEFAULT_PTS);
+  const [hasSelection, setHasSelection] = useState(false);
+  const [dragging, setDragging]   = useState<HandleKey | null>(null);
+  const [selStart, setSelStart]   = useState<[number, number] | null>(null);
+  const [selEnd, setSelEnd]       = useState<[number, number] | null>(null);
 
   useEffect(() => {
-    if (initialCorners) setTp(toTwoPoint(initialCorners));
+    if (initialCorners) { setPts(initialCorners); setHasSelection(true); }
   }, [initialCorners]);
 
   useEffect(() => {
@@ -95,7 +143,7 @@ export default function BuildingCanvas({
     canvas.height = photo.naturalHeight;
     ctx.drawImage(photo, 0, 0);
 
-    // Live drag preview
+    // Live selection preview
     if (selStart && selEnd) {
       const x = Math.min(selStart[0], selEnd[0]);
       const y = Math.min(selStart[1], selEnd[1]);
@@ -111,55 +159,52 @@ export default function BuildingCanvas({
       return;
     }
 
-    if (!tp) return;
+    if (!hasSelection) return;
 
-    const [x1, y1] = tp.tl;
-    const [x2, y2] = tp.br;
-    const w = x2 - x1, h = y2 - y1;
-    if (w < 4 || h < 4) return;
-
-    // Design — always fully visible in rectangle
+    // Draw design warped into the 4 points
     if (designImg) {
-      ctx.globalAlpha = 0.85;
-      ctx.drawImage(designImg, x1, y1, w, h);
-      ctx.globalAlpha = 1;
+      drawWarped(ctx, designImg,
+        pts.topLeft, pts.topRight, pts.bottomRight, pts.bottomLeft, 0.85);
     }
 
-    // Dashed outline at exact rectangle edges
+    // Outline connecting the 4 dots
     ctx.strokeStyle = "#2563eb";
     ctx.lineWidth   = Math.max(2, canvas.width * 0.003);
     ctx.setLineDash([10, 5]);
-    ctx.strokeRect(x1, y1, w, h);
+    ctx.beginPath();
+    ctx.moveTo(pts.topLeft[0],     pts.topLeft[1]);
+    ctx.lineTo(pts.topRight[0],    pts.topRight[1]);
+    ctx.lineTo(pts.bottomRight[0], pts.bottomRight[1]);
+    ctx.lineTo(pts.bottomLeft[0],  pts.bottomLeft[1]);
+    ctx.closePath();
+    ctx.stroke();
     ctx.setLineDash([]);
 
-    // Dots — screen-size relative, at EXACT corners
-    const cr = canvas.getBoundingClientRect();
+    // Dots at exact corner positions
+    const cr    = canvas.getBoundingClientRect();
     const scale = canvas.width / (cr.width || canvas.width);
-    const r = Math.round(6 * scale);
+    const r     = Math.round(6 * scale);
 
-    const corners: [HandleKey, number, number][] = [
-      ["topLeft",     x1, y1],
-      ["topRight",    x2, y1],
-      ["bottomRight", x2, y2],
-      ["bottomLeft",  x1, y2],
+    const handles: [HandleKey, number, number][] = [
+      ["topLeft",     pts.topLeft[0],     pts.topLeft[1]],
+      ["topRight",    pts.topRight[0],    pts.topRight[1]],
+      ["bottomRight", pts.bottomRight[0], pts.bottomRight[1]],
+      ["bottomLeft",  pts.bottomLeft[0],  pts.bottomLeft[1]],
     ];
-
-    for (const [key, px, py] of corners) {
-      // White ring
+    for (const [key, px, py] of handles) {
       ctx.shadowColor = "rgba(0,0,0,0.3)";
       ctx.shadowBlur  = r;
       ctx.beginPath();
       ctx.arc(px, py, r + 2, 0, Math.PI * 2);
       ctx.fillStyle = "white";
       ctx.fill();
-      // Blue dot
       ctx.shadowColor = "transparent";
       ctx.beginPath();
       ctx.arc(px, py, r, 0, Math.PI * 2);
       ctx.fillStyle = dragging === key ? "#1e40af" : "#3b82f6";
       ctx.fill();
     }
-  }, [photo, designImg, tp, dragging, selStart, selEnd]);
+  }, [photo, designImg, pts, hasSelection, dragging, selStart, selEnd]);
 
   useEffect(() => { render(); }, [render]);
 
@@ -173,20 +218,13 @@ export default function BuildingCanvas({
   };
 
   const hitHandle = (mx: number, my: number): HandleKey | null => {
-    if (!tp) return null;
+    if (!hasSelection) return null;
     const c      = canvasRef.current!;
     const cr     = c.getBoundingClientRect();
     const scale  = c.width / cr.width;
     const thresh = 18 * scale;
-    const [x1, y1] = tp.tl;
-    const [x2, y2] = tp.br;
-    const pts: [HandleKey, number, number][] = [
-      ["topLeft",     x1, y1],
-      ["topRight",    x2, y1],
-      ["bottomRight", x2, y2],
-      ["bottomLeft",  x1, y2],
-    ];
-    for (const [key, px, py] of pts) {
+    for (const key of ["topLeft","topRight","bottomRight","bottomLeft"] as HandleKey[]) {
+      const [px, py] = pts[key];
       if (Math.hypot(mx - px, my - py) < thresh) return key;
     }
     return null;
@@ -196,22 +234,18 @@ export default function BuildingCanvas({
     const [mx, my] = toCanvas(e);
     const handle = hitHandle(mx, my);
     if (handle) { setDragging(handle); return; }
-    setTp(null);
+    setHasSelection(false);
     setSelStart([mx, my]);
     setSelEnd([mx, my]);
   };
 
   const onMouseMove = (e: React.MouseEvent) => {
     const [mx, my] = toCanvas(e);
-    if (dragging && tp) {
-      // Each corner only changes its own X and Y — opposite corner stays fixed
-      let newTp = { ...tp };
-      if (dragging === "topLeft")     newTp = { tl: [mx, my],        br: tp.br };
-      if (dragging === "topRight")    newTp = { tl: [tp.tl[0], my],  br: [mx, tp.br[1]] };
-      if (dragging === "bottomRight") newTp = { tl: tp.tl,            br: [mx, my] };
-      if (dragging === "bottomLeft")  newTp = { tl: [mx, tp.tl[1]],  br: [tp.br[0], my] };
-      setTp(newTp);
-      onCornersChange(toCorners(newTp));
+    if (dragging) {
+      // Only this dot moves — others stay exactly where they are
+      const updated = { ...pts, [dragging]: [mx, my] as [number, number] };
+      setPts(updated);
+      onCornersChange(updated);
       return;
     }
     if (selStart) setSelEnd([mx, my]);
@@ -220,13 +254,18 @@ export default function BuildingCanvas({
   const onMouseUp = (e: React.MouseEvent) => {
     if (selStart) {
       const [mx, my] = toCanvas(e);
-      const newTp: TwoPoint = {
-        tl: [Math.min(selStart[0], mx), Math.min(selStart[1], my)],
-        br: [Math.max(selStart[0], mx), Math.max(selStart[1], my)],
-      };
-      if ((newTp.br[0] - newTp.tl[0]) > 8 && (newTp.br[1] - newTp.tl[1]) > 8) {
-        setTp(newTp);
-        onCornersChange(toCorners(newTp));
+      if (Math.abs(mx - selStart[0]) > 8 && Math.abs(my - selStart[1]) > 8) {
+        const x = Math.min(selStart[0], mx), y = Math.min(selStart[1], my);
+        const w = Math.abs(mx - selStart[0]), h = Math.abs(my - selStart[1]);
+        const newPts: CornerPoints = {
+          topLeft:     [x,     y],
+          topRight:    [x + w, y],
+          bottomRight: [x + w, y + h],
+          bottomLeft:  [x,     y + h],
+        };
+        setPts(newPts);
+        onCornersChange(newPts);
+        setHasSelection(true);
       }
     }
     setSelStart(null);
@@ -261,7 +300,7 @@ export default function BuildingCanvas({
           Exporteer preview als PNG
         </button>
         <p className="text-sm text-gray-500 self-center">
-          Sleep over het logo om te plaatsen · versleep hoekpunten om bij te stellen
+          Sleep over het logo · versleep hoekpunten om bij te stellen
         </p>
       </div>
     </div>
