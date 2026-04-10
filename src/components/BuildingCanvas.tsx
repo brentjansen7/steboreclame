@@ -37,29 +37,29 @@ function drawWarped(
     const t0 = i / steps;
     const t1 = (i + 1) / steps;
 
-    // Destination strip corners
-    const d0lx = lerp(tl[0], bl[0], t0), d0ly = lerp(tl[1], bl[1], t0);
-    const d0rx = lerp(tr[0], br[0], t0), d0ry = lerp(tr[1], br[1], t0);
-    const d1lx = lerp(tl[0], bl[0], t1), d1ly = lerp(tl[1], bl[1], t1);
-    const d1rx = lerp(tr[0], br[0], t1), d1ry = lerp(tr[1], br[1], t1);
+    // Destination strip: 4 corners of this horizontal slice
+    const d0lx = lerp(tl[0], bl[0], t0), d0ly = lerp(tl[1], bl[1], t0); // top-left
+    const d0rx = lerp(tr[0], br[0], t0), d0ry = lerp(tr[1], br[1], t0); // top-right
+    const d1lx = lerp(tl[0], bl[0], t1), d1ly = lerp(tl[1], bl[1], t1); // bottom-left
+    const d1rx = lerp(tr[0], br[0], t1), d1ry = lerp(tr[1], br[1], t1); // bottom-right
 
     // Source strip y range
-    const sy0 = t0 * ih;
-    const sy1 = t1 * ih;
+    const srcY0 = t0 * ih;
+    const srcY1 = t1 * ih;
 
-    // Affine transform: map source rect (0,sy0)→(iw,sy0)→(0,sy1) to dest strip
-    const sx0 = 0, sy0v = sy0, sx1 = iw, sx2 = 0, sy2v = sy1;
-    const dx0 = d0lx, dy0 = d0ly, dx1 = d0rx, dy1 = d0ry, dx2 = d1lx, dy2 = d1ly;
-
-    const det = (sx1 - sx0) * (sy2v - sy0v) - (sx2 - sx0) * (sy1v - sy0v);
+    // 3 source points → 3 dest points for affine transform
+    // p0: (0, srcY0) → (d0lx, d0ly)
+    // p1: (iw, srcY0) → (d0rx, d0ry)
+    // p2: (0, srcY1) → (d1lx, d1ly)
+    const det = iw * (srcY1 - srcY0);
     if (Math.abs(det) < 0.001) continue;
 
-    const a = ((dx1 - dx0) * (sy2v - sy0v) - (dx2 - dx0) * (sy1v - sy0v)) / det;
-    const b = ((dy1 - dy0) * (sy2v - sy0v) - (dy2 - dy0) * (sy1v - sy0v)) / det;
-    const c = ((dx2 - dx0) * (sx1 - sx0) - (dx1 - dx0) * (sx2 - sx0)) / det;
-    const d = ((dy2 - dy0) * (sx1 - sx0) - (dy1 - dy0) * (sx2 - sx0)) / det;
-    const e = dx0 - a * sx0 - c * sy0v;
-    const f = dy0 - b * sx0 - d * sy0v;
+    const a = ((d0rx - d0lx) * (srcY1 - srcY0)) / det;
+    const b = ((d0ry - d0ly) * (srcY1 - srcY0)) / det;
+    const c = ((d1lx - d0lx) * iw) / det;
+    const d = ((d1ly - d0ly) * iw) / det;
+    const e = d0lx - a * 0 - c * srcY0;
+    const f = d0ly - b * 0 - d * srcY0;
 
     ctx.save();
     ctx.beginPath();
