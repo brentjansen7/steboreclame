@@ -3,6 +3,8 @@
 import { useRef, useState, useEffect, useCallback } from "react";
 import type { CornerPoints } from "@/lib/perspectiveEngine";
 
+// Store rect as 2 anchor points; other 2 are always derived
+interface TwoPoint { tl: [number, number]; br: [number, number]; }
 type HandleKey = "topLeft" | "topRight" | "bottomRight" | "bottomLeft";
 
 interface BuildingCanvasProps {
@@ -15,12 +17,25 @@ interface BuildingCanvasProps {
   clickToPlace?: boolean;
 }
 
-const DEFAULT_PTS: CornerPoints = {
-  topLeft:     [100, 100],
-  topRight:    [300, 100],
-  bottomRight: [300, 250],
-  bottomLeft:  [100, 250],
-};
+function toTwoPoint(c: CornerPoints): TwoPoint {
+  const xs = [c.topLeft[0], c.topRight[0], c.bottomRight[0], c.bottomLeft[0]];
+  const ys = [c.topLeft[1], c.topRight[1], c.bottomRight[1], c.bottomLeft[1]];
+  return {
+    tl: [Math.min(...xs), Math.min(...ys)],
+    br: [Math.max(...xs), Math.max(...ys)],
+  };
+}
+
+function toCorners(tp: TwoPoint): CornerPoints {
+  const [x1, y1] = tp.tl;
+  const [x2, y2] = tp.br;
+  return {
+    topLeft:     [x1, y1],
+    topRight:    [x2, y1],
+    bottomRight: [x2, y2],
+    bottomLeft:  [x1, y2],
+  };
+}
 
 export default function BuildingCanvas({
   buildingPhotoUrl,
@@ -37,18 +52,15 @@ export default function BuildingCanvas({
     if (setCanvasRef) setCanvasRef(node);
   }, [setCanvasRef]);
 
-  const [photo, setPhoto]         = useState<HTMLImageElement | null>(null);
-  const [designImg, setDesignImg] = useState<HTMLImageElement | null>(null);
-  // 4 independent points — the source of truth
-  const [pts, setPts]             = useState<CornerPoints>(DEFAULT_PTS);
-  const [hasSelection, setHasSelection] = useState(false);
-  const [dragging, setDragging]   = useState<HandleKey | null>(null);
-  // new-selection drag state
-  const [selStart, setSelStart]   = useState<[number, number] | null>(null);
-  const [selEnd, setSelEnd]       = useState<[number, number] | null>(null);
+  const [photo, setPhoto]           = useState<HTMLImageElement | null>(null);
+  const [designImg, setDesignImg]   = useState<HTMLImageElement | null>(null);
+  const [tp, setTp]                 = useState<TwoPoint | null>(null);
+  const [dragging, setDragging]     = useState<HandleKey | null>(null);
+  const [selStart, setSelStart]     = useState<[number, number] | null>(null);
+  const [selEnd, setSelEnd]         = useState<[number, number] | null>(null);
 
   useEffect(() => {
-    if (initialCorners) { setPts(initialCorners); setHasSelection(true); }
+    if (initialCorners) setTp(toTwoPoint(initialCorners));
   }, [initialCorners]);
 
   useEffect(() => {
@@ -83,7 +95,7 @@ export default function BuildingCanvas({
     canvas.height = photo.naturalHeight;
     ctx.drawImage(photo, 0, 0);
 
-    // Live selection preview while dragging a new area
+    // Live drag preview
     if (selStart && selEnd) {
       const x = Math.min(selStart[0], selEnd[0]);
       const y = Math.min(selStart[1], selEnd[1]);
@@ -99,79 +111,82 @@ export default function BuildingCanvas({
       return;
     }
 
-    if (!hasSelection) return;
+    if (!tp) return;
 
-    // Bounding box for design overlay (from actual point positions)
-    const xs = [pts.topLeft[0], pts.topRight[0], pts.bottomRight[0], pts.bottomLeft[0]];
-    const ys = [pts.topLeft[1], pts.topRight[1], pts.bottomRight[1], pts.bottomLeft[1]];
-    const bx = Math.min(...xs), by = Math.min(...ys);
-    const bw = Math.max(...xs) - bx, bh = Math.max(...ys) - by;
+    const [x1, y1] = tp.tl;
+    const [x2, y2] = tp.br;
+    const w = x2 - x1, h = y2 - y1;
+    if (w < 4 || h < 4) return;
 
-    if (designImg && bw > 4 && bh > 4) {
-      // Draw design in bounding box — always fully visible, not clipped
+    // Design — always fully visible in rectangle
+    if (designImg) {
       ctx.globalAlpha = 0.85;
-      ctx.drawImage(designImg, bx, by, bw, bh);
+      ctx.drawImage(designImg, x1, y1, w, h);
       ctx.globalAlpha = 1;
     }
 
-    // Outline connecting the 4 points in actual positions
+    // Dashed outline at exact rectangle edges
     ctx.strokeStyle = "#2563eb";
     ctx.lineWidth   = Math.max(2, canvas.width * 0.003);
     ctx.setLineDash([10, 5]);
-    ctx.beginPath();
-    ctx.moveTo(pts.topLeft[0],     pts.topLeft[1]);
-    ctx.lineTo(pts.topRight[0],    pts.topRight[1]);
-    ctx.lineTo(pts.bottomRight[0], pts.bottomRight[1]);
-    ctx.lineTo(pts.bottomLeft[0],  pts.bottomLeft[1]);
-    ctx.closePath();
-    ctx.stroke();
+    ctx.strokeRect(x1, y1, w, h);
     ctx.setLineDash([]);
 
-    // Small handles — size in canvas pixels that = ~7px on screen
-    const displayWidth = canvasRef.current?.getBoundingClientRect().width || canvas.width;
-    const scale = canvas.width / displayWidth;
-    const r = Math.round(7 * scale); // always 7 CSS pixels on screen
-    const keys: HandleKey[] = ["topLeft", "topRight", "bottomRight", "bottomLeft"];
-    for (const key of keys) {
-      const [px, py] = pts[key];
+    // Dots — screen-size relative, at EXACT corners
+    const cr = canvas.getBoundingClientRect();
+    const scale = canvas.width / (cr.width || canvas.width);
+    const r = Math.round(6 * scale);
+
+    const corners: [HandleKey, number, number][] = [
+      ["topLeft",     x1, y1],
+      ["topRight",    x2, y1],
+      ["bottomRight", x2, y2],
+      ["bottomLeft",  x1, y2],
+    ];
+
+    for (const [key, px, py] of corners) {
+      // White ring
       ctx.shadowColor = "rgba(0,0,0,0.3)";
       ctx.shadowBlur  = r;
-      // white ring
       ctx.beginPath();
       ctx.arc(px, py, r + 2, 0, Math.PI * 2);
       ctx.fillStyle = "white";
       ctx.fill();
-      // blue dot
+      // Blue dot
       ctx.shadowColor = "transparent";
       ctx.beginPath();
       ctx.arc(px, py, r, 0, Math.PI * 2);
       ctx.fillStyle = dragging === key ? "#1e40af" : "#3b82f6";
       ctx.fill();
     }
-  }, [photo, designImg, pts, hasSelection, dragging, selStart, selEnd]);
+  }, [photo, designImg, tp, dragging, selStart, selEnd]);
 
   useEffect(() => { render(); }, [render]);
 
   const toCanvas = (e: React.MouseEvent): [number, number] => {
     const c  = canvasRef.current!;
     const cr = c.getBoundingClientRect();
-    // cr.width = CSS display width, c.width = actual canvas pixel width
-    const scaleX = c.width  / cr.width;
-    const scaleY = c.height / cr.height;
     return [
-      Math.round((e.clientX - cr.left) * scaleX),
-      Math.round((e.clientY - cr.top)  * scaleY),
+      Math.round((e.clientX - cr.left) * (c.width  / cr.width)),
+      Math.round((e.clientY - cr.top)  * (c.height / cr.height)),
     ];
   };
 
   const hitHandle = (mx: number, my: number): HandleKey | null => {
-    if (!hasSelection) return null;
+    if (!tp) return null;
     const c      = canvasRef.current!;
     const cr     = c.getBoundingClientRect();
     const scale  = c.width / cr.width;
-    const thresh = 18 * scale; // 18 CSS px hit area around each dot
-    for (const key of ["topLeft","topRight","bottomRight","bottomLeft"] as HandleKey[]) {
-      const [px, py] = pts[key];
+    const thresh = 18 * scale;
+    const [x1, y1] = tp.tl;
+    const [x2, y2] = tp.br;
+    const pts: [HandleKey, number, number][] = [
+      ["topLeft",     x1, y1],
+      ["topRight",    x2, y1],
+      ["bottomRight", x2, y2],
+      ["bottomLeft",  x1, y2],
+    ];
+    for (const [key, px, py] of pts) {
       if (Math.hypot(mx - px, my - py) < thresh) return key;
     }
     return null;
@@ -179,21 +194,24 @@ export default function BuildingCanvas({
 
   const onMouseDown = (e: React.MouseEvent) => {
     const [mx, my] = toCanvas(e);
-    const handle   = hitHandle(mx, my);
+    const handle = hitHandle(mx, my);
     if (handle) { setDragging(handle); return; }
-    // Start new selection
-    setHasSelection(false);
+    setTp(null);
     setSelStart([mx, my]);
     setSelEnd([mx, my]);
   };
 
   const onMouseMove = (e: React.MouseEvent) => {
     const [mx, my] = toCanvas(e);
-    if (dragging) {
-      // ONLY this dot moves — all others stay fixed
-      const updated = { ...pts, [dragging]: [mx, my] as [number, number] };
-      setPts(updated);
-      onCornersChange(updated);
+    if (dragging && tp) {
+      // Each corner only changes its own X and Y — opposite corner stays fixed
+      let newTp = { ...tp };
+      if (dragging === "topLeft")     newTp = { tl: [mx, my],        br: tp.br };
+      if (dragging === "topRight")    newTp = { tl: [tp.tl[0], my],  br: [mx, tp.br[1]] };
+      if (dragging === "bottomRight") newTp = { tl: tp.tl,            br: [mx, my] };
+      if (dragging === "bottomLeft")  newTp = { tl: [mx, tp.tl[1]],  br: [tp.br[0], my] };
+      setTp(newTp);
+      onCornersChange(toCorners(newTp));
       return;
     }
     if (selStart) setSelEnd([mx, my]);
@@ -202,18 +220,13 @@ export default function BuildingCanvas({
   const onMouseUp = (e: React.MouseEvent) => {
     if (selStart) {
       const [mx, my] = toCanvas(e);
-      const x = Math.min(selStart[0], mx), y = Math.min(selStart[1], my);
-      const w = Math.abs(mx - selStart[0]), h = Math.abs(my - selStart[1]);
-      if (w > 8 && h > 8) {
-        const newPts: CornerPoints = {
-          topLeft:     [x,     y    ],
-          topRight:    [x + w, y    ],
-          bottomRight: [x + w, y + h],
-          bottomLeft:  [x,     y + h],
-        };
-        setPts(newPts);
-        onCornersChange(newPts);
-        setHasSelection(true);
+      const newTp: TwoPoint = {
+        tl: [Math.min(selStart[0], mx), Math.min(selStart[1], my)],
+        br: [Math.max(selStart[0], mx), Math.max(selStart[1], my)],
+      };
+      if ((newTp.br[0] - newTp.tl[0]) > 8 && (newTp.br[1] - newTp.tl[1]) > 8) {
+        setTp(newTp);
+        onCornersChange(toCorners(newTp));
       }
     }
     setSelStart(null);
