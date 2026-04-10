@@ -18,16 +18,16 @@ interface BuildingCanvasProps {
 // Warp designImg into arbitrary quad (tl, tr, br, bl) using horizontal strip method
 function drawWarped(
   ctx: CanvasRenderingContext2D,
-  img: HTMLImageElement,
+  img: HTMLImageElement | HTMLCanvasElement,
   tl: [number, number],
   tr: [number, number],
   br: [number, number],
   bl: [number, number],
   alpha: number
 ) {
-  const steps = 200;
-  const iw = img.naturalWidth || img.width;
-  const ih = img.naturalHeight || img.height;
+  const iw = "naturalWidth" in img ? (img.naturalWidth || img.width) : img.width;
+  const ih = "naturalHeight" in img ? (img.naturalHeight || img.height) : img.height;
+  const steps = Math.max(ih, 200); // one strip per source pixel row
   const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
   ctx.save();
@@ -163,7 +163,15 @@ export default function BuildingCanvas({
 
     // Draw design warped into the 4 points
     if (designImg) {
-      drawWarped(ctx, designImg,
+      // Pre-render to offscreen canvas with white background to avoid transparency
+      const off = document.createElement("canvas");
+      off.width  = designImg.naturalWidth || designImg.width;
+      off.height = designImg.naturalHeight || designImg.height;
+      const offCtx = off.getContext("2d")!;
+      offCtx.fillStyle = "white";
+      offCtx.fillRect(0, 0, off.width, off.height);
+      offCtx.drawImage(designImg, 0, 0);
+      drawWarped(ctx, off,
         pts.topLeft, pts.topRight, pts.bottomRight, pts.bottomLeft, 1.0);
     }
 
