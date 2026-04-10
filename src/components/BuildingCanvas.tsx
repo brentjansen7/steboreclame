@@ -189,18 +189,29 @@ export default function BuildingCanvas({
   const onMouseMove = (e: React.MouseEvent) => {
     const [mx, my] = toCanvas(e);
     if (dragging) {
-      // Keep rectangle aligned: opposite corner stays fixed
-      const xs = [pts.topLeft[0], pts.topRight[0], pts.bottomRight[0], pts.bottomLeft[0]];
-      const ys = [pts.topLeft[1], pts.topRight[1], pts.bottomRight[1], pts.bottomLeft[1]];
-      const minX = Math.min(...xs), maxX = Math.max(...xs);
-      const minY = Math.min(...ys), maxY = Math.max(...ys);
-
+      // Only this corner moves — opposite corner stays exactly where it is
       let newPts = { ...pts };
-      // Drag a corner, opposite corner stays fixed = rectangle stretches/shrinks
-      if (dragging === "topLeft")     { newPts = { topLeft: [mx, my], topRight: [maxX, my], bottomRight: [maxX, maxY], bottomLeft: [mx, maxY] }; }
-      if (dragging === "topRight")    { newPts = { topLeft: [minX, my], topRight: [mx, my], bottomRight: [mx, maxY], bottomLeft: [minX, maxY] }; }
-      if (dragging === "bottomRight") { newPts = { topLeft: [minX, minY], topRight: [mx, minY], bottomRight: [mx, my], bottomLeft: [minX, my] }; }
-      if (dragging === "bottomLeft")  { newPts = { topLeft: [mx, minY], topRight: [maxX, minY], bottomRight: [maxX, my], bottomLeft: [mx, my] }; }
+      if (dragging === "topLeft") {
+        // topLeft moves, bottomRight stays
+        newPts.topLeft = [mx, my];
+        newPts.topRight = [pts.bottomRight[0], my];
+        newPts.bottomLeft = [mx, pts.bottomRight[1]];
+      } else if (dragging === "topRight") {
+        // topRight moves, bottomLeft stays
+        newPts.topRight = [mx, my];
+        newPts.topLeft = [pts.bottomLeft[0], my];
+        newPts.bottomRight = [mx, pts.bottomLeft[1]];
+      } else if (dragging === "bottomRight") {
+        // bottomRight moves, topLeft stays
+        newPts.bottomRight = [mx, my];
+        newPts.topRight = [mx, pts.topLeft[1]];
+        newPts.bottomLeft = [pts.topLeft[0], my];
+      } else if (dragging === "bottomLeft") {
+        // bottomLeft moves, topRight stays
+        newPts.bottomLeft = [mx, my];
+        newPts.topLeft = [mx, pts.topRight[1]];
+        newPts.bottomRight = [pts.topRight[0], my];
+      }
 
       setPts(newPts);
       onCornersChange(newPts);
