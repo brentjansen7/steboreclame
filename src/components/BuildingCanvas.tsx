@@ -22,15 +22,13 @@ interface Props {
 const MAX_CANVAS = 1200;
 const MAX_SRC    = 600;
 
-// ─── Affine triangle rasteriser (GPU-accelerated via canvas transforms) ────────
-// Expands clip by EPS pixels from centroid to close sub-pixel gaps.
+// ─── Affine triangle — draws src region into dst triangle on ctx ───────────
 function drawTriangle(
   ctx: CanvasRenderingContext2D,
   img: HTMLCanvasElement,
-  sx0:number,sy0:number,dx0:number,dy0:number,
-  sx1:number,sy1:number,dx1:number,dy1:number,
-  sx2:number,sy2:number,dx2:number,dy2:number,
-  EPS = 1.5,
+  sx0:number,sy0:number, dx0:number,dy0:number,
+  sx1:number,sy1:number, dx1:number,dy1:number,
+  sx2:number,sy2:number, dx2:number,dy2:number,
 ) {
   const det=(sx1-sx0)*(sy2-sy0)-(sx2-sx0)*(sy1-sy0);
   if (Math.abs(det)<0.001) return;
@@ -41,98 +39,55 @@ function drawTriangle(
   const e=dx0-a*sx0-c*sy0;
   const f=dy0-b*sx0-d*sy0;
 
-  // Expand clip slightly to close gaps between adjacent strips/triangles
+  // Expand clip 1px from centroid to eliminate sub-pixel seams
   const cx=(dx0+dx1+dx2)/3, cy=(dy0+dy1+dy2)/3;
-  function exp(x:number,y:number):[number,number]{
-    const vx=x-cx,vy=y-cy,len=Math.sqrt(vx*vx+vy*vy)||1;
-    return [x+(vx/len)*EPS,y+(vy/len)*EPS];
-  }
-  const [ex0,ey0]=exp(dx0,dy0);
-  const [ex1,ey1]=exp(dx1,dy1);
-  const [ex2,ey2]=exp(dx2,dy2);
+  const exp=(x:number,y:number):P2=>{const vx=x-cx,vy=y-cy,l=Math.sqrt(vx*vx+vy*vy)||1;return [x+vx/l,y+vy/l];};
 
   ctx.save();
   ctx.beginPath();
-  ctx.moveTo(ex0,ey0); ctx.lineTo(ex1,ey1); ctx.lineTo(ex2,ey2);
-  ctx.closePath(); ctx.clip();
+  const [ax,ay]=exp(dx0,dy0); const [bx,by]=exp(dx1,dy1); const [ccx,ccy]=exp(dx2,dy2);
+  ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.lineTo(ccx,ccy); ctx.closePath(); ctx.clip();
   ctx.setTransform(a,b,c,d,e,f);
   ctx.drawImage(img,0,0);
   ctx.restore();
 }
 
-// ─── Bilinear lerp helpers ────────────────────────────────────────────────────
-function lerp(a:P2,b:P2,t:number):P2{ return [a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t]; }
-function qbez(a:P2,m:P2,b:P2,t:number):P2{ return lerp(lerp(a,m,t),lerp(m,b,t),t); }
+// ─── Bezier helpers ─────────────────────────────────────────────────────────
+const lerp=(a:P2,b:P2,t:number):P2=>[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t];
+const qbez=(a:P2,m:P2,b:P2,t:number):P2=>lerp(lerp(a,m,t),lerp(m,b,t),t);
 
-// ─── Warp using horizontal scanlines — renders to a NEW offscreen canvas ──────
-// One strip per source pixel row. No getImageData → no CORS issue.
-function buildWarpCanvas(
+// ─── Draw warp directly onto ctx (no getImageData — CORS-safe) ─────────────
+// One strip per src row → no visible scan seams.
+function drawWarp(
+  ctx: CanvasRenderingContext2D,
   src: HTMLCanvasElement,
   tl:P2,tr:P2,br:P2,bl:P2,
   mt:P2,mr:P2,mb:P2,ml:P2,
-  dstW:number, dstH:number,
-): HTMLCanvasElement {
+) {
   const sW=src.width, sH=src.height;
-  const out=document.createElement("canvas");
-  out.width=dstW; out.height=dstH;
-  const ctx=out.getContext("2d")!;
+  if(!sW||!sH) return;
 
-  const STRIPS=sH; // 1 strip per source pixel row — eliminates visible scan seams
-  for (let i=0;i<STRIPS;i++) {
-    const v0=i/STRIPS, v1=(i+1)/STRIPS;
+  for(let i=0;i<sH;i++){
+    const v0=i/sH, v1=(i+1)/sH;
     const sy0=v0*sH, sy1=v1*sH;
 
-    // Curved edge: use Coons bilerp (reduces to bilinear when mids are midpoints)
-    const lx0=qbez(tl,ml,bl,v0)[0], ly0=qbez(tl,ml,bl,v0)[1]; // left edge at v0
-    const rx0=qbez(tr,mr,br,v0)[0], ry0=qbez(tr,mr,br,v0)[1]; // right edge at v0
-    const lx1=qbez(tl,ml,bl,v1)[0], ly1=qbez(tl,ml,bl,v1)[1]; // left edge at v1
-    const rx1=qbez(tr,mr,br,v1)[0], ry1=qbez(tr,mr,br,v1)[1]; // right edge at v1
+    const L0=qbez(tl,ml,bl,v0);
+    const R0=qbez(tr,mr,br,v0);
+    const L1=qbez(tl,ml,bl,v1);
+    const R1=qbez(tr,mr,br,v1);
 
-    // Correct top/bottom dst y for horizontal curvature
-    const topMidY=qbez(tl,mt,tr,0.5)[1]; // vertical correction for curved top
-    const botMidY=qbez(bl,mb,br,0.5)[1]; // vertical correction for curved bottom
-    void topMidY; void botMidY;
-
-    // Draw two triangles to fill this strip
     drawTriangle(ctx,src,
-      0,   sy0, lx0,ly0,
-      sW,  sy0, rx0,ry0,
-      0,   sy1, lx1,ly1,
-    );
+      0, sy0, L0[0],L0[1],
+      sW,sy0, R0[0],R0[1],
+      0, sy1, L1[0],L1[1]);
     drawTriangle(ctx,src,
-      sW,  sy0, rx0,ry0,
-      sW,  sy1, rx1,ry1,
-      0,   sy1, lx1,ly1,
-    );
+      sW,sy0, R0[0],R0[1],
+      sW,sy1, R1[0],R1[1],
+      0, sy1, L1[0],L1[1]);
   }
-
-  // Additionally, do COLUMN pass for horizontal accuracy
-  const COLS=sW;
-  for (let j=0;j<COLS;j++) {
-    const u0=j/COLS, u1=(j+1)/COLS;
-    const sx0=u0*sW, sx1=u1*sW;
-
-    const tx0=qbez(tl,mt,tr,u0)[0], ty0=qbez(tl,mt,tr,u0)[1]; // top edge at u0
-    const bx0=qbez(bl,mb,br,u0)[0], by0=qbez(bl,mb,br,u0)[1]; // bot edge at u0
-    const tx1=qbez(tl,mt,tr,u1)[0], ty1=qbez(tl,mt,tr,u1)[1]; // top edge at u1
-    const bx1=qbez(bl,mb,br,u1)[0], by1=qbez(bl,mb,br,u1)[1]; // bot edge at u1
-
-    drawTriangle(ctx,src,
-      sx0,0,  tx0,ty0,
-      sx1,0,  tx1,ty1,
-      sx0,sH, bx0,by0,
-    );
-    drawTriangle(ctx,src,
-      sx1,0,  tx1,ty1,
-      sx1,sH, bx1,by1,
-      sx0,sH, bx0,by0,
-    );
-  }
-
-  return out;
 }
 
-// ─── SVG → opaque canvas ─────────────────────────────────────────────────────
+// ─── SVG → opaque canvas (blob URL, no CORS) ─────────────────────────────
 function loadSvgToCanvas(svgStr:string, maxPx:number): Promise<HTMLCanvasElement> {
   const wm=svgStr.match(/\bwidth\s*=\s*["']\s*([0-9.]+)/);
   const hm=svgStr.match(/\bheight\s*=\s*["']\s*([0-9.]+)/);
@@ -161,7 +116,7 @@ function loadSvgToCanvas(svgStr:string, maxPx:number): Promise<HTMLCanvasElement
   });
 }
 
-// ─── Defaults ─────────────────────────────────────────────────────────────────
+// ─── Defaults ────────────────────────────────────────────────────────────────
 const DEFAULT_CORNERS:CornerPoints={
   topLeft:[100,100],topRight:[300,100],bottomRight:[300,250],bottomLeft:[100,250],
 };
@@ -175,12 +130,13 @@ function defaultMids(pts:CornerPoints):MidPoints{
   };
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
+// ─── Component ───────────────────────────────────────────────────────────────
 export default function BuildingCanvas({
   buildingPhotoUrl,designSvg,onCornersChange,onExport,setCanvasRef,initialCorners,
 }:Props){
   const canvasRef=useRef<HTMLCanvasElement|null>(null);
-  const srcRef   =useRef<HTMLCanvasElement|null>(null);
+  const photoRef =useRef<HTMLImageElement|null>(null);  // keep photo ref for export
+  const srcRef   =useRef<HTMLCanvasElement|null>(null); // opaque design canvas
 
   const callbackRef=useCallback((node:HTMLCanvasElement|null)=>{
     canvasRef.current=node; if(setCanvasRef) setCanvasRef(node);
@@ -202,31 +158,30 @@ export default function BuildingCanvas({
   useEffect(()=>{
     if(!buildingPhotoUrl) return;
     const img=new Image(); img.crossOrigin="anonymous";
-    img.onload=()=>setPhoto(img); img.src=buildingPhotoUrl;
+    img.onload=()=>{ photoRef.current=img; setPhoto(img); };
+    img.src=buildingPhotoUrl;
   },[buildingPhotoUrl]);
 
   useEffect(()=>{
     if(!designSvg) return;
     setSvgReady(false);
-    loadSvgToCanvas(designSvg,MAX_SRC).then((c)=>{srcRef.current=c; setSvgReady(true);});
+    loadSvgToCanvas(designSvg,MAX_SRC).then((c)=>{ srcRef.current=c; setSvgReady(true); });
   },[designSvg]);
-
-  const makeLayer=useCallback((p:CornerPoints,m:MidPoints,dW:number,dH:number)=>{
-    if(!srcRef.current) return null;
-    return buildWarpCanvas(srcRef.current,
-      p.topLeft,p.topRight,p.bottomRight,p.bottomLeft,
-      m.midTop,m.midRight,m.midBottom,m.midLeft,dW,dH);
-  },[]);
 
   const render=useCallback(()=>{
     const canvas=canvasRef.current;
     if(!canvas||!photo) return;
     const ctx=canvas.getContext("2d")!;
+
+    // Scale canvas
     const ratio=Math.min(1,MAX_CANVAS/photo.naturalWidth);
     canvas.width =Math.round(photo.naturalWidth *ratio);
     canvas.height=Math.round(photo.naturalHeight*ratio);
+
+    // Draw photo — taints canvas but we never call getImageData on it
     ctx.drawImage(photo,0,0,canvas.width,canvas.height);
 
+    // Selection preview
     if(selStart&&selEnd){
       const x=Math.min(selStart[0],selEnd[0]),y=Math.min(selStart[1],selEnd[1]);
       const w=Math.abs(selEnd[0]-selStart[0]),h=Math.abs(selEnd[1]-selStart[1]);
@@ -237,10 +192,11 @@ export default function BuildingCanvas({
     }
     if(!hasSelection) return;
 
-    // Composite warp layer (no getImageData → no CORS)
+    // Draw warp directly on canvas — no getImageData, so CORS doesn't matter
     if(srcRef.current){
-      const layer=makeLayer(pts,mids,canvas.width,canvas.height);
-      if(layer) ctx.drawImage(layer,0,0);
+      drawWarp(ctx,srcRef.current,
+        pts.topLeft,pts.topRight,pts.bottomRight,pts.bottomLeft,
+        mids.midTop,mids.midRight,mids.midBottom,mids.midLeft);
     }
 
     // Curved border
@@ -254,11 +210,14 @@ export default function BuildingCanvas({
     ctx.quadraticCurveTo(mids.midLeft[0],mids.midLeft[1],pts.topLeft[0],pts.topLeft[1]);
     ctx.stroke(); ctx.setLineDash([]);
 
-    const cr=canvas.getBoundingClientRect(),scale=canvas.width/(cr.width||canvas.width);
-    const r=Math.round(6*scale);
+    // Handles
+    const cr=canvas.getBoundingClientRect(),sc=canvas.width/(cr.width||canvas.width);
+    const r=Math.round(6*sc);
     for(const [key,px,py] of [
-      ["topLeft",pts.topLeft[0],pts.topLeft[1]],["topRight",pts.topRight[0],pts.topRight[1]],
-      ["bottomRight",pts.bottomRight[0],pts.bottomRight[1]],["bottomLeft",pts.bottomLeft[0],pts.bottomLeft[1]],
+      ["topLeft",pts.topLeft[0],pts.topLeft[1]],
+      ["topRight",pts.topRight[0],pts.topRight[1]],
+      ["bottomRight",pts.bottomRight[0],pts.bottomRight[1]],
+      ["bottomLeft",pts.bottomLeft[0],pts.bottomLeft[1]],
     ] as [CornerKey,number,number][]){
       ctx.shadowColor="rgba(0,0,0,0.3)"; ctx.shadowBlur=r;
       ctx.beginPath(); ctx.arc(px,py,r+2,0,Math.PI*2); ctx.fillStyle="white"; ctx.fill();
@@ -266,20 +225,22 @@ export default function BuildingCanvas({
       ctx.beginPath(); ctx.arc(px,py,r,0,Math.PI*2);
       ctx.fillStyle=dragging===key?"#1e40af":"#3b82f6"; ctx.fill();
     }
-    const rm=Math.round(4*scale);
+    const rm=Math.round(4*sc);
     for(const [key,px,py] of [
-      ["midTop",mids.midTop[0],mids.midTop[1]],["midRight",mids.midRight[0],mids.midRight[1]],
-      ["midBottom",mids.midBottom[0],mids.midBottom[1]],["midLeft",mids.midLeft[0],mids.midLeft[1]],
+      ["midTop",mids.midTop[0],mids.midTop[1]],
+      ["midRight",mids.midRight[0],mids.midRight[1]],
+      ["midBottom",mids.midBottom[0],mids.midBottom[1]],
+      ["midLeft",mids.midLeft[0],mids.midLeft[1]],
     ] as [MidKey,number,number][]){
       ctx.shadowColor="transparent";
       ctx.beginPath(); ctx.arc(px,py,rm+2,0,Math.PI*2); ctx.fillStyle="white"; ctx.fill();
       ctx.beginPath(); ctx.arc(px,py,rm,0,Math.PI*2);
       ctx.fillStyle=dragging===key?"#c2410c":"#f97316"; ctx.fill();
     }
-  },[photo,pts,mids,hasSelection,dragging,selStart,selEnd,makeLayer]);
+  },[photo,pts,mids,hasSelection,dragging,selStart,selEnd]);
 
   useEffect(()=>{render();},[render]);
-  useEffect(()=>{if(svgReady) render();},[svgReady,render]);
+  useEffect(()=>{ if(svgReady) render(); },[svgReady,render]);
 
   const toCanvas=(e:React.MouseEvent):P2=>{
     const c=canvasRef.current!,cr=c.getBoundingClientRect();
@@ -353,15 +314,19 @@ export default function BuildingCanvas({
       <div className="flex gap-3 mt-4">
         <button
           onClick={()=>{
-            const canvas=canvasRef.current;
-            if(!canvas||!photo) return;
+            const ph=photoRef.current, src=srcRef.current;
+            if(!ph) return;
+            // Build fresh canvas — NOT tainted by cross-origin photo read
             const exp=document.createElement("canvas");
-            exp.width=canvas.width; exp.height=canvas.height;
+            const ratio=Math.min(1,MAX_CANVAS/ph.naturalWidth);
+            exp.width=Math.round(ph.naturalWidth*ratio);
+            exp.height=Math.round(ph.naturalHeight*ratio);
             const ctx=exp.getContext("2d")!;
-            ctx.drawImage(photo,0,0,exp.width,exp.height);
-            if(hasSelection&&srcRef.current){
-              const layer=makeLayer(pts,mids,exp.width,exp.height);
-              if(layer) ctx.drawImage(layer,0,0);
+            ctx.drawImage(ph,0,0,exp.width,exp.height);
+            if(hasSelection&&src){
+              drawWarp(ctx,src,
+                pts.topLeft,pts.topRight,pts.bottomRight,pts.bottomLeft,
+                mids.midTop,mids.midRight,mids.midBottom,mids.midLeft);
             }
             onExport(exp);
           }}
