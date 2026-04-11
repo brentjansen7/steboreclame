@@ -372,7 +372,20 @@ export default function BuildingCanvas({
       />
       <div className="flex gap-3 mt-4">
         <button
-          onClick={() => { if (canvasRef.current) onExport(canvasRef.current); }}
+          onClick={() => {
+            const canvas = canvasRef.current;
+            if (!canvas || !photo) return;
+            // Render clean copy without handles/border
+            const exp = document.createElement("canvas");
+            exp.width = canvas.width; exp.height = canvas.height;
+            const ctx = exp.getContext("2d")!;
+            ctx.drawImage(photo, 0, 0, exp.width, exp.height);
+            if (srcCanvasRef.current && srcDataRef.current && hasSelection) {
+              drawPerspective(ctx, srcCanvasRef.current, srcDataRef.current,
+                pts.topLeft, pts.topRight, pts.bottomRight, pts.bottomLeft);
+            }
+            onExport(exp);
+          }}
           className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
         >
           Exporteer preview als PNG
