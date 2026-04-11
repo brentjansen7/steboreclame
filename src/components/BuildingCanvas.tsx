@@ -5,7 +5,7 @@ import type { CornerPoints } from "@/lib/perspectiveEngine";
 
 type HandleKey = "topLeft" | "topRight" | "bottomRight" | "bottomLeft";
 
-interface BuildingCanvasProps {
+interface Props {
   buildingPhotoUrl: string | null;
   designSvg: string | null;
   onCornersChange: (corners: CornerPoints) => void;
@@ -15,162 +15,192 @@ interface BuildingCanvasProps {
   clickToPlace?: boolean;
 }
 
-// Affine-map one triangle from src image onto dst canvas
-function drawTriangle(
-  ctx: CanvasRenderingContext2D,
-  img: HTMLCanvasElement,
-  sx0: number, sy0: number, dx0: number, dy0: number,
-  sx1: number, sy1: number, dx1: number, dy1: number,
-  sx2: number, sy2: number, dx2: number, dy2: number,
-) {
-  const det = (sx1 - sx0) * (sy2 - sy0) - (sx2 - sx0) * (sy1 - sy0);
-  if (Math.abs(det) < 0.001) return;
-  const a = ((dx1 - dx0) * (sy2 - sy0) - (dx2 - dx0) * (sy1 - sy0)) / det;
-  const b = ((dy1 - dy0) * (sy2 - sy0) - (dy2 - dy0) * (sy1 - sy0)) / det;
-  const c = ((dx2 - dx0) * (sx1 - sx0) - (dx1 - dx0) * (sx2 - sx0)) / det;
-  const d = ((dy2 - dy0) * (sx1 - sx0) - (dy1 - dy0) * (sx2 - sx0)) / det;
-  const e = dx0 - a * sx0 - c * sy0;
-  const f = dy0 - b * sx0 - d * sy0;
+const MAX_CANVAS = 1200; // render resolution — big enough to look good
+const MAX_SRC    = 600;  // source canvas max — limits pixel loop work
 
-  // Expand clip region 0.5px outward from centroid to prevent sub-pixel gaps
-  const cx = (dx0 + dx1 + dx2) / 3;
-  const cy = (dy0 + dy1 + dy2) / 3;
-  const EPS = 0.5;
-  function expand(x: number, y: number): [number, number] {
-    const vx = x - cx, vy = y - cy;
-    const len = Math.sqrt(vx * vx + vy * vy) || 1;
-    return [x + (vx / len) * EPS, y + (vy / len) * EPS];
+// ─── Homography solver ────────────────────────────────────────────────────────
+// Returns h[0..7] where for a dst point (dx,dy):
+//   srcX = (h0*dx + h1*dy + h2) / (h6*dx + h7*dy + 1)
+//   srcY = (h3*dx + h4*dy + h5) / (h6*dx + h7*dy + 1)
+function solveHomography(
+  dst: [[number,number],[number,number],[number,number],[number,number]],
+  src: [[number,number],[number,number],[number,number],[number,number]],
+): Float64Array {
+  const A: Float64Array[] = Array.from({length: 8}, () => new Float64Array(8));
+  const b = new Float64Array(8);
+  for (let i = 0; i < 4; i++) {
+    const [dx, dy] = dst[i]; const [sx, sy] = src[i];
+    A[2*i  ].set([dx, dy, 1, 0, 0, 0, -sx*dx, -sx*dy]); b[2*i]   = sx;
+    A[2*i+1].set([0, 0, 0, dx, dy, 1, -sy*dx, -sy*dy]); b[2*i+1] = sy;
   }
-  const [ex0, ey0] = expand(dx0, dy0);
-  const [ex1, ey1] = expand(dx1, dy1);
-  const [ex2, ey2] = expand(dx2, dy2);
-
-  ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(ex0, ey0);
-  ctx.lineTo(ex1, ey1);
-  ctx.lineTo(ex2, ey2);
-  ctx.closePath();
-  ctx.clip();
-  ctx.setTransform(a, b, c, d, e, f);
-  ctx.drawImage(img, 0, 0);
-  ctx.restore();
-}
-
-/**
- * Warp img into an arbitrary quadrilateral using horizontal scanline strips.
- * Each strip is ~1px tall in source space → no horizontal seams.
- * The two triangles per strip are sub-pixel thin → diagonal seam invisible.
- */
-function drawWarped(
-  ctx: CanvasRenderingContext2D,
-  img: HTMLCanvasElement,
-  tl: [number, number],
-  tr: [number, number],
-  br: [number, number],
-  bl: [number, number],
-) {
-  const iw = img.width;
-  const ih = img.height;
-  // Cap at 300 strips — more than enough for a crisp warp, fast enough
-  const STRIPS = Math.min(ih, 300);
-
-  for (let i = 0; i < STRIPS; i++) {
-    const v0 = i / STRIPS;
-    const v1 = (i + 1) / STRIPS;
-    const sy0 = v0 * ih;
-    const sy1 = v1 * ih;
-
-    // Bilinear interpolation of the destination quad
-    const lx0 = tl[0] + (bl[0] - tl[0]) * v0, ly0 = tl[1] + (bl[1] - tl[1]) * v0;
-    const rx0 = tr[0] + (br[0] - tr[0]) * v0, ry0 = tr[1] + (br[1] - tr[1]) * v0;
-    const lx1 = tl[0] + (bl[0] - tl[0]) * v1, ly1 = tl[1] + (bl[1] - tl[1]) * v1;
-    const rx1 = tr[0] + (br[0] - tr[0]) * v1, ry1 = tr[1] + (br[1] - tr[1]) * v1;
-
-    // Top-left, top-right, bottom-left, bottom-right of this strip
-    drawTriangle(ctx, img,
-      0,  sy0, lx0, ly0,
-      iw, sy0, rx0, ry0,
-      0,  sy1, lx1, ly1,
-    );
-    drawTriangle(ctx, img,
-      iw, sy0, rx0, ry0,
-      iw, sy1, rx1, ry1,
-      0,  sy1, lx1, ly1,
-    );
-  }
-}
-
-const DEFAULT_PTS: CornerPoints = {
-  topLeft:     [100, 100],
-  topRight:    [300, 100],
-  bottomRight: [300, 250],
-  bottomLeft:  [100, 250],
-};
-
-/** Load SVG string as HTMLImageElement with correct intrinsic size injected */
-function loadSvgImage(svgStr: string): Promise<HTMLImageElement> {
-  return new Promise((resolve) => {
-    // Parse the SVG to read/inject explicit width+height from viewBox
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(svgStr, "image/svg+xml");
-    const root = doc.documentElement as unknown as SVGSVGElement;
-
-    let w = parseFloat(root.getAttribute("width") || "0");
-    let h = parseFloat(root.getAttribute("height") || "0");
-
-    if (!w || !h) {
-      const vb = root.getAttribute("viewBox");
-      if (vb) {
-        const parts = vb.split(/[\s,]+/).map(Number);
-        if (parts.length === 4) { w = parts[2]; h = parts[3]; }
-      }
+  // Gauss-Jordan elimination
+  for (let col = 0; col < 8; col++) {
+    let maxRow = col;
+    for (let row = col+1; row < 8; row++)
+      if (Math.abs(A[row][col]) > Math.abs(A[maxRow][col])) maxRow = row;
+    [A[col], A[maxRow]] = [A[maxRow], A[col]];
+    [b[col], b[maxRow]] = [b[maxRow], b[col]];
+    const p = A[col][col];
+    if (Math.abs(p) < 1e-12) continue;
+    for (let k = 0; k < 8; k++) A[col][k] /= p;
+    b[col] /= p;
+    for (let row = 0; row < 8; row++) {
+      if (row === col) continue;
+      const f = A[row][col]; if (!f) continue;
+      for (let k = 0; k < 8; k++) A[row][k] -= f * A[col][k];
+      b[row] -= f * b[col];
     }
-    if (!w) w = 800;
-    if (!h) h = 600;
+  }
+  return b;
+}
 
-    // Force explicit dimensions so the browser renders at full size
-    root.setAttribute("width",  String(w));
-    root.setAttribute("height", String(h));
+// ─── Perspective-correct pixel warp ──────────────────────────────────────────
+function drawPerspective(
+  ctx: CanvasRenderingContext2D,
+  srcCanvas: HTMLCanvasElement,
+  srcData: ImageData,
+  tl: [number,number], tr: [number,number],
+  br: [number,number], bl: [number,number],
+) {
+  const W = srcCanvas.width, H = srcCanvas.height;
+  if (!W || !H) return;
+  const cW = ctx.canvas.width, cH = ctx.canvas.height;
 
-    const serialized = new XMLSerializer().serializeToString(doc);
-    const blob = new Blob([serialized], { type: "image/svg+xml" });
+  // Destination bounding box (clamp to canvas)
+  const x0 = Math.max(0, Math.floor(Math.min(tl[0],tr[0],br[0],bl[0])));
+  const x1 = Math.min(cW, Math.ceil (Math.max(tl[0],tr[0],br[0],bl[0])));
+  const y0 = Math.max(0, Math.floor(Math.min(tl[1],tr[1],br[1],bl[1])));
+  const y1 = Math.min(cH, Math.ceil (Math.max(tl[1],tr[1],br[1],bl[1])));
+  if (x1 <= x0 || y1 <= y0) return;
+
+  // Inverse homography: for each canvas pixel → source pixel
+  const h = solveHomography(
+    [tl, tr, br, bl],
+    [[0,0],[W,0],[W,H],[0,H]],
+  );
+
+  const dW = x1 - x0, dH = y1 - y0;
+  const dstImg = ctx.getImageData(x0, y0, dW, dH);
+  const dst = dstImg.data;
+  const sdata = srcData.data;
+
+  for (let py = 0; py < dH; py++) {
+    const cy = y0 + py + 0.5;
+    for (let px = 0; px < dW; px++) {
+      const cx = x0 + px + 0.5;
+      const hw  = h[6]*cx + h[7]*cy + 1;
+      if (Math.abs(hw) < 1e-9) continue;
+      const sx = (h[0]*cx + h[1]*cy + h[2]) / hw;
+      const sy = (h[3]*cx + h[4]*cy + h[5]) / hw;
+      if (sx < 0 || sx >= W || sy < 0 || sy >= H) continue;
+
+      // Bilinear sample
+      const ix0 = sx | 0, iy0 = sy | 0;
+      const ix1 = ix0 < W-1 ? ix0+1 : ix0;
+      const iy1 = iy0 < H-1 ? iy0+1 : iy0;
+      const fx = sx-ix0, fy = sy-iy0;
+      const w00=(1-fx)*(1-fy), w10=fx*(1-fy), w01=(1-fx)*fy, w11=fx*fy;
+      const i00=(iy0*W+ix0)*4, i10=(iy0*W+ix1)*4;
+      const i01=(iy1*W+ix0)*4, i11=(iy1*W+ix1)*4;
+      const di=(py*dW+px)*4;
+      dst[di  ] = w00*sdata[i00  ]+w10*sdata[i10  ]+w01*sdata[i01  ]+w11*sdata[i11  ];
+      dst[di+1] = w00*sdata[i00+1]+w10*sdata[i10+1]+w01*sdata[i01+1]+w11*sdata[i11+1];
+      dst[di+2] = w00*sdata[i00+2]+w10*sdata[i10+2]+w01*sdata[i01+2]+w11*sdata[i11+2];
+      dst[di+3] = 255; // fully opaque — no building bleed-through
+    }
+  }
+
+  ctx.putImageData(dstImg, x0, y0);
+}
+
+// ─── SVG → opaque canvas ─────────────────────────────────────────────────────
+function loadSvgToCanvas(svgStr: string, maxPx: number): Promise<HTMLCanvasElement> {
+  // Extract intrinsic size via regex (DOMParser unreliable for blob URLs)
+  const wm = svgStr.match(/\bwidth\s*=\s*["']\s*([0-9.]+)/);
+  const hm = svgStr.match(/\bheight\s*=\s*["']\s*([0-9.]+)/);
+  const vm = svgStr.match(/\bviewBox\s*=\s*["'][^"']*?([0-9.-]+)[\s,]+([0-9.-]+)[\s,]+([0-9.-]+)[\s,]+([0-9.-]+)/);
+  let svgW = wm ? parseFloat(wm[1]) : 0;
+  let svgH = hm ? parseFloat(hm[1]) : 0;
+  if ((!svgW || !svgH) && vm) { svgW = parseFloat(vm[3]); svgH = parseFloat(vm[4]); }
+  if (!svgW || svgW < 1) svgW = 800;
+  if (!svgH || svgH < 1) svgH = 600;
+
+  // Force explicit width+height on the <svg> tag
+  let modified = svgStr.replace(
+    /(<svg\b)((?:[^>](?!width\s*=))*?)>/,
+    (_m, tag, rest) => `${tag}${rest} width="${svgW}" height="${svgH}">`,
+  );
+  // Simpler fallback: if the regex didn't match, just prepend attributes
+  if (!modified.includes(`width="${svgW}"`)) {
+    modified = svgStr.replace("<svg", `<svg width="${svgW}" height="${svgH}"`);
+  }
+
+  const scale = Math.min(1, maxPx / Math.max(svgW, svgH));
+  const cW = Math.max(1, Math.round(svgW * scale));
+  const cH = Math.max(1, Math.round(svgH * scale));
+
+  return new Promise((resolve) => {
+    const blob = new Blob([modified], { type: "image/svg+xml" });
     const url  = URL.createObjectURL(blob);
-
-    const img = new Image(w, h);
-    img.onload  = () => { URL.revokeObjectURL(url); resolve(img); };
-    img.onerror = () => { URL.revokeObjectURL(url); resolve(img); }; // resolve anyway
+    const img  = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const c = document.createElement("canvas");
+      c.width = cW; c.height = cH;
+      const cx = c.getContext("2d")!;
+      cx.fillStyle = "white";
+      cx.fillRect(0, 0, cW, cH);
+      cx.drawImage(img, 0, 0, cW, cH);
+      resolve(c);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      // Fallback: plain white canvas (still shows no building)
+      const c = document.createElement("canvas");
+      c.width = 200; c.height = 100;
+      const cx = c.getContext("2d")!;
+      cx.fillStyle = "#ddd";
+      cx.fillRect(0, 0, 200, 100);
+      cx.fillStyle = "#999";
+      cx.font = "14px sans-serif";
+      cx.fillText("SVG laad fout", 20, 55);
+      resolve(c);
+    };
     img.src = url;
   });
 }
 
+// ─── Component ────────────────────────────────────────────────────────────────
+const DEFAULT_PTS: CornerPoints = {
+  topLeft: [100,100], topRight: [300,100],
+  bottomRight: [300,250], bottomLeft: [100,250],
+};
+
 export default function BuildingCanvas({
-  buildingPhotoUrl,
-  designSvg,
-  onCornersChange,
-  onExport,
-  setCanvasRef,
-  initialCorners,
-}: BuildingCanvasProps) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  buildingPhotoUrl, designSvg,
+  onCornersChange, onExport, setCanvasRef, initialCorners,
+}: Props) {
+  const canvasRef    = useRef<HTMLCanvasElement | null>(null);
+  const srcCanvasRef = useRef<HTMLCanvasElement | null>(null); // opaque design
+  const srcDataRef   = useRef<ImageData | null>(null);         // cached pixels
 
   const callbackRef = useCallback((node: HTMLCanvasElement | null) => {
     canvasRef.current = node;
     if (setCanvasRef) setCanvasRef(node);
   }, [setCanvasRef]);
 
-  const [photo, setPhoto]         = useState<HTMLImageElement | null>(null);
-  const [designImg, setDesignImg] = useState<HTMLImageElement | null>(null);
-  const [pts, setPts]             = useState<CornerPoints>(DEFAULT_PTS);
+  const [photo,        setPhoto]        = useState<HTMLImageElement | null>(null);
+  const [pts,          setPts]          = useState<CornerPoints>(DEFAULT_PTS);
   const [hasSelection, setHasSelection] = useState(false);
-  const [dragging, setDragging]   = useState<HandleKey | null>(null);
-  const [selStart, setSelStart]   = useState<[number, number] | null>(null);
-  const [selEnd, setSelEnd]       = useState<[number, number] | null>(null);
+  const [dragging,     setDragging]     = useState<HandleKey | null>(null);
+  const [selStart,     setSelStart]     = useState<[number,number] | null>(null);
+  const [selEnd,       setSelEnd]       = useState<[number,number] | null>(null);
 
   useEffect(() => {
     if (initialCorners) { setPts(initialCorners); setHasSelection(true); }
   }, [initialCorners]);
 
+  // Load building photo
   useEffect(() => {
     if (!buildingPhotoUrl) return;
     const img = new Image();
@@ -179,63 +209,57 @@ export default function BuildingCanvas({
     img.src = buildingPhotoUrl;
   }, [buildingPhotoUrl]);
 
+  // Load & rasterise design SVG → opaque canvas
   useEffect(() => {
     if (!designSvg) return;
-    loadSvgImage(designSvg).then(setDesignImg);
+    loadSvgToCanvas(designSvg, MAX_SRC).then((c) => {
+      srcCanvasRef.current = c;
+      srcDataRef.current   = c.getContext("2d")!.getImageData(0, 0, c.width, c.height);
+    });
   }, [designSvg]);
 
   const render = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas || !photo) return;
     const ctx = canvas.getContext("2d")!;
-    canvas.width  = photo.naturalWidth;
-    canvas.height = photo.naturalHeight;
-    ctx.drawImage(photo, 0, 0);
 
-    // Live selection box preview
+    // Scale canvas to max MAX_CANVAS px wide
+    const ratio = Math.min(1, MAX_CANVAS / photo.naturalWidth);
+    canvas.width  = Math.round(photo.naturalWidth  * ratio);
+    canvas.height = Math.round(photo.naturalHeight * ratio);
+    ctx.drawImage(photo, 0, 0, canvas.width, canvas.height);
+
+    // Selection preview
     if (selStart && selEnd) {
-      const x = Math.min(selStart[0], selEnd[0]);
-      const y = Math.min(selStart[1], selEnd[1]);
-      const w = Math.abs(selEnd[0] - selStart[0]);
-      const h = Math.abs(selEnd[1] - selStart[1]);
+      const x = Math.min(selStart[0],selEnd[0]), y = Math.min(selStart[1],selEnd[1]);
+      const w = Math.abs(selEnd[0]-selStart[0]), h = Math.abs(selEnd[1]-selStart[1]);
       ctx.fillStyle   = "rgba(37,99,235,0.12)";
-      ctx.fillRect(x, y, w, h);
+      ctx.fillRect(x,y,w,h);
       ctx.strokeStyle = "#2563eb";
-      ctx.lineWidth   = Math.max(2, canvas.width * 0.003);
-      ctx.setLineDash([12, 6]);
-      ctx.strokeRect(x, y, w, h);
+      ctx.lineWidth   = Math.max(2, canvas.width*0.003);
+      ctx.setLineDash([12,6]);
+      ctx.strokeRect(x,y,w,h);
       ctx.setLineDash([]);
       return;
     }
 
     if (!hasSelection) return;
 
-    // Warp the design into the selected quad
-    if (designImg) {
-      // Render design onto opaque white offscreen canvas first
-      const srcW = designImg.naturalWidth  || designImg.width  || 800;
-      const srcH = designImg.naturalHeight || designImg.height || 600;
-      const off = document.createElement("canvas");
-      off.width  = srcW;
-      off.height = srcH;
-      const offCtx = off.getContext("2d")!;
-      offCtx.fillStyle = "white";
-      offCtx.fillRect(0, 0, srcW, srcH);
-      offCtx.drawImage(designImg, 0, 0, srcW, srcH);
-
-      drawWarped(ctx, off,
+    // Pixel-correct warp
+    if (srcCanvasRef.current && srcDataRef.current) {
+      drawPerspective(ctx, srcCanvasRef.current, srcDataRef.current,
         pts.topLeft, pts.topRight, pts.bottomRight, pts.bottomLeft);
     }
 
-    // Border around the quad
+    // Border
     ctx.strokeStyle = "#2563eb";
-    ctx.lineWidth   = Math.max(2, canvas.width * 0.003);
-    ctx.setLineDash([10, 5]);
+    ctx.lineWidth   = Math.max(2, canvas.width*0.003);
+    ctx.setLineDash([10,5]);
     ctx.beginPath();
-    ctx.moveTo(pts.topLeft[0],     pts.topLeft[1]);
-    ctx.lineTo(pts.topRight[0],    pts.topRight[1]);
-    ctx.lineTo(pts.bottomRight[0], pts.bottomRight[1]);
-    ctx.lineTo(pts.bottomLeft[0],  pts.bottomLeft[1]);
+    ctx.moveTo(pts.topLeft[0],    pts.topLeft[1]);
+    ctx.lineTo(pts.topRight[0],   pts.topRight[1]);
+    ctx.lineTo(pts.bottomRight[0],pts.bottomRight[1]);
+    ctx.lineTo(pts.bottomLeft[0], pts.bottomLeft[1]);
     ctx.closePath();
     ctx.stroke();
     ctx.setLineDash([]);
@@ -244,92 +268,87 @@ export default function BuildingCanvas({
     const cr    = canvas.getBoundingClientRect();
     const scale = canvas.width / (cr.width || canvas.width);
     const r     = Math.round(6 * scale);
-
-    const handles: [HandleKey, number, number][] = [
-      ["topLeft",     pts.topLeft[0],     pts.topLeft[1]],
-      ["topRight",    pts.topRight[0],    pts.topRight[1]],
-      ["bottomRight", pts.bottomRight[0], pts.bottomRight[1]],
-      ["bottomLeft",  pts.bottomLeft[0],  pts.bottomLeft[1]],
+    const handles: [HandleKey,number,number][] = [
+      ["topLeft",    pts.topLeft[0],    pts.topLeft[1]],
+      ["topRight",   pts.topRight[0],   pts.topRight[1]],
+      ["bottomRight",pts.bottomRight[0],pts.bottomRight[1]],
+      ["bottomLeft", pts.bottomLeft[0], pts.bottomLeft[1]],
     ];
-    for (const [key, px, py] of handles) {
-      ctx.shadowColor = "rgba(0,0,0,0.3)";
-      ctx.shadowBlur  = r;
-      ctx.beginPath();
-      ctx.arc(px, py, r + 2, 0, Math.PI * 2);
-      ctx.fillStyle = "white";
-      ctx.fill();
+    for (const [key,px,py] of handles) {
+      ctx.shadowColor = "rgba(0,0,0,0.3)"; ctx.shadowBlur = r;
+      ctx.beginPath(); ctx.arc(px,py,r+2,0,Math.PI*2);
+      ctx.fillStyle = "white"; ctx.fill();
       ctx.shadowColor = "transparent";
-      ctx.beginPath();
-      ctx.arc(px, py, r, 0, Math.PI * 2);
-      ctx.fillStyle = dragging === key ? "#1e40af" : "#3b82f6";
-      ctx.fill();
+      ctx.beginPath(); ctx.arc(px,py,r,0,Math.PI*2);
+      ctx.fillStyle = dragging === key ? "#1e40af" : "#3b82f6"; ctx.fill();
     }
-  }, [photo, designImg, pts, hasSelection, dragging, selStart, selEnd]);
+  }, [photo, pts, hasSelection, dragging, selStart, selEnd]);
 
   useEffect(() => { render(); }, [render]);
 
-  const toCanvas = (e: React.MouseEvent): [number, number] => {
-    const c  = canvasRef.current!;
+  // Also re-render when srcData is ready
+  useEffect(() => {
+    if (!designSvg) return;
+    loadSvgToCanvas(designSvg, MAX_SRC).then((c) => {
+      srcCanvasRef.current = c;
+      srcDataRef.current   = c.getContext("2d")!.getImageData(0, 0, c.width, c.height);
+      render();
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [designSvg]);
+
+  const toCanvas = (e: React.MouseEvent): [number,number] => {
+    const c = canvasRef.current!;
     const cr = c.getBoundingClientRect();
     return [
-      Math.round((e.clientX - cr.left) * (c.width  / cr.width)),
-      Math.round((e.clientY - cr.top)  * (c.height / cr.height)),
+      Math.round((e.clientX-cr.left)*(c.width /cr.width)),
+      Math.round((e.clientY-cr.top) *(c.height/cr.height)),
     ];
   };
 
   const hitHandle = (mx: number, my: number): HandleKey | null => {
     if (!hasSelection) return null;
-    const c      = canvasRef.current!;
-    const cr     = c.getBoundingClientRect();
-    const scale  = c.width / cr.width;
-    const thresh = 18 * scale;
+    const c = canvasRef.current!;
+    const cr = c.getBoundingClientRect();
+    const thresh = 18 * (c.width / cr.width);
     for (const key of ["topLeft","topRight","bottomRight","bottomLeft"] as HandleKey[]) {
-      const [px, py] = pts[key];
-      if (Math.hypot(mx - px, my - py) < thresh) return key;
+      const [px,py] = pts[key];
+      if (Math.hypot(mx-px, my-py) < thresh) return key;
     }
     return null;
   };
 
   const onMouseDown = (e: React.MouseEvent) => {
-    const [mx, my] = toCanvas(e);
-    const handle = hitHandle(mx, my);
+    const [mx,my] = toCanvas(e);
+    const handle = hitHandle(mx,my);
     if (handle) { setDragging(handle); return; }
     setHasSelection(false);
-    setSelStart([mx, my]);
-    setSelEnd([mx, my]);
+    setSelStart([mx,my]); setSelEnd([mx,my]);
   };
 
   const onMouseMove = (e: React.MouseEvent) => {
-    const [mx, my] = toCanvas(e);
+    const [mx,my] = toCanvas(e);
     if (dragging) {
-      const updated = { ...pts, [dragging]: [mx, my] as [number, number] };
-      setPts(updated);
-      onCornersChange(updated);
-      return;
+      const up = { ...pts, [dragging]: [mx,my] as [number,number] };
+      setPts(up); onCornersChange(up); return;
     }
-    if (selStart) setSelEnd([mx, my]);
+    if (selStart) setSelEnd([mx,my]);
   };
 
   const onMouseUp = (e: React.MouseEvent) => {
     if (selStart) {
-      const [mx, my] = toCanvas(e);
-      if (Math.abs(mx - selStart[0]) > 8 && Math.abs(my - selStart[1]) > 8) {
-        const x = Math.min(selStart[0], mx), y = Math.min(selStart[1], my);
-        const w = Math.abs(mx - selStart[0]), h = Math.abs(my - selStart[1]);
-        const newPts: CornerPoints = {
-          topLeft:     [x,     y],
-          topRight:    [x + w, y],
-          bottomRight: [x + w, y + h],
-          bottomLeft:  [x,     y + h],
+      const [mx,my] = toCanvas(e);
+      if (Math.abs(mx-selStart[0])>8 && Math.abs(my-selStart[1])>8) {
+        const x=Math.min(selStart[0],mx), y=Math.min(selStart[1],my);
+        const w=Math.abs(mx-selStart[0]),  h=Math.abs(my-selStart[1]);
+        const np: CornerPoints = {
+          topLeft:[x,y], topRight:[x+w,y],
+          bottomRight:[x+w,y+h], bottomLeft:[x,y+h],
         };
-        setPts(newPts);
-        onCornersChange(newPts);
-        setHasSelection(true);
+        setPts(np); onCornersChange(np); setHasSelection(true);
       }
     }
-    setSelStart(null);
-    setSelEnd(null);
-    setDragging(null);
+    setSelStart(null); setSelEnd(null); setDragging(null);
   };
 
   if (!buildingPhotoUrl) {
