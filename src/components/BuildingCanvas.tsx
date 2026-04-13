@@ -115,7 +115,7 @@ function buildGLCanvas(
       const u=i/N, v=j/N;
       const p=coons(tl,tr,br,bl,mt,mr,mb,ml,u,v);
       pos.push(p[0],p[1]);
-      uvs.push(u,1-v); // flip v because WebGL y is bottom-up
+      uvs.push(u,v);
     }
   }
   for(let j=0;j<N;j++){
