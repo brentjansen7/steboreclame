@@ -222,7 +222,7 @@ export default function BuildingCanvas({
   },[designSvg]);
 
   const drawDesign=useCallback((ctx:CanvasRenderingContext2D,p:CornerPoints,m:MidPoints,w:number,h:number)=>{
-    if(!designSrc)return;
+    if(!designSrc||!photoRef.current)return;
     const gl=buildGLCanvas(designSrc,
       p.topLeft,p.topRight,p.bottomRight,p.bottomLeft,
       m.midTop,m.midRight,m.midBottom,m.midLeft, w,h);
@@ -238,6 +238,12 @@ export default function BuildingCanvas({
     ctx.shadowBlur=0;
     ctx.shadowOffsetX=0;
     ctx.shadowOffsetY=0;
+    // Overlay building texture for realistic surface effect
+    ctx.globalCompositeOperation='overlay';
+    ctx.globalAlpha=0.16;
+    ctx.drawImage(photoRef.current,0,0,w,h);
+    ctx.globalCompositeOperation='source-over';
+    ctx.globalAlpha=1.0;
   },[designSrc]);
 
   const render=useCallback(()=>{
