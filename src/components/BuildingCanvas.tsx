@@ -226,11 +226,18 @@ export default function BuildingCanvas({
     const gl=buildGLCanvas(designSrc,
       p.topLeft,p.topRight,p.bottomRight,p.bottomLeft,
       m.midTop,m.midRight,m.midBottom,m.midLeft, w,h);
-    ctx.globalCompositeOperation='multiply';
-    ctx.globalAlpha=0.92;
-    ctx.drawImage(gl,0,0);
+    // Draw sign opaque with shadow for realistic depth
     ctx.globalCompositeOperation='source-over';
     ctx.globalAlpha=1.0;
+    ctx.shadowColor='rgba(0,0,0,0.45)';
+    ctx.shadowBlur=16;
+    ctx.shadowOffsetX=2;
+    ctx.shadowOffsetY=5;
+    ctx.drawImage(gl,0,0);
+    ctx.shadowColor='transparent';
+    ctx.shadowBlur=0;
+    ctx.shadowOffsetX=0;
+    ctx.shadowOffsetY=0;
   },[designSrc]);
 
   const render=useCallback(()=>{

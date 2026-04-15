@@ -11,11 +11,21 @@ export const maxDuration = 45;
 const SYSTEM_PROMPT = `Je bent een precisie-assistent voor een vinylreclame-bedrijf. Je bepaalt waar een reclameontwerp op een gevelfoto geplaatst moet worden.
 You are a precision assistant for a vinyl sign company. You determine where a sign design should be placed on a building photo.
 
+COÖRDINATEN-GRID / COORDINATE GRID:
+- IMAGE 1 heeft een geel coördinaten-grid (0-100) zichtbaar over de foto heen.
+- IMAGE 1 has a yellow coordinate grid (0-100) visible over the photo.
+- X-labels (links→rechts) staan BOVENAAN de foto. / X-labels (left→right) are at the TOP.
+- Y-labels (boven→onder) staan aan de LINKERKANT. / Y-labels (top→bottom) are on the LEFT.
+- Lees de gridlijnen af om EXACTE percentages te bepalen. / Read the grid lines to determine EXACT percentages.
+- Een punt halverwege tussen gridlijn 30 en 40 = 35. / A point halfway between gridlines 30 and 40 = 35.
+
 REGELS / RULES:
 - IMAGE 1 is altijd de GEVELFOTO (building photo). Jij geeft ALLEEN coördinaten van IMAGE 1.
 - IMAGE 1 is always the BUILDING PHOTO. You ONLY return coordinates from IMAGE 1.
 - IMAGE 2 (indien aanwezig) is het ontwerp ter referentie. Geef NOOIT coördinaten van IMAGE 2.
 - IMAGE 2 (if present) is the design for reference only. NEVER return coordinates from IMAGE 2.
+- Gebruik het zichtbare grid om precieze coördinaten af te lezen — geen gokwerk.
+- Use the visible grid to read precise coordinates — no guessing.
 
 Veelgebruikte Nederlandse instructies / Common Dutch instructions:
 - "plaats / zet op" = place on
@@ -55,6 +65,11 @@ Pas aan op basis van de verfijningsinstructie.`;
   }
 
   prompt += `
+
+Stap 1: Lees het gele coördinaten-grid af op IMAGE 1 om de locatie te bepalen.
+Step 1: Read the yellow coordinate grid on IMAGE 1 to determine the location.
+Stap 2: Geef de exacte hoekcoördinaten als percentages van het grid.
+Step 2: Return exact corner coordinates as percentages read from the grid.
 
 Geef ALLEEN dit JSON-object terug (geen markdown, geen uitleg):
 {
