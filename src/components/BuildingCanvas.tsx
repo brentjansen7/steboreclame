@@ -226,7 +226,11 @@ export default function BuildingCanvas({
     const gl=buildGLCanvas(designSrc,
       p.topLeft,p.topRight,p.bottomRight,p.bottomLeft,
       m.midTop,m.midRight,m.midBottom,m.midLeft, w,h);
+    ctx.globalCompositeOperation='multiply';
+    ctx.globalAlpha=0.92;
     ctx.drawImage(gl,0,0);
+    ctx.globalCompositeOperation='source-over';
+    ctx.globalAlpha=1.0;
   },[designSrc]);
 
   const render=useCallback(()=>{
@@ -380,7 +384,7 @@ export default function BuildingCanvas({
             exp.height=Math.round(ph.naturalHeight*ratio);
             const ctx=exp.getContext('2d')!;
             ctx.drawImage(ph,0,0,exp.width,exp.height);
-            if(hasSel&&designSrc) drawDesign(ctx,pts,mids,exp.width,exp.height);
+            if(hasSel&&designSrc){drawDesign(ctx,pts,mids,exp.width,exp.height);}
             onExport(exp);
           }}
           className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"

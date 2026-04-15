@@ -111,7 +111,7 @@ export default function PreviewPage() {
         canvas.height = Math.round(img.height * scale);
         const ctx = canvas.getContext("2d")!;
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        const jpegDataUrl = canvas.toDataURL("image/jpeg", 0.5);
+        const jpegDataUrl = canvas.toDataURL("image/jpeg", 0.88);
         const base64 = jpegDataUrl.split(",")[1];
         resolve({ base64, mediaType: "image/jpeg", w: canvas.width, h: canvas.height });
       };
@@ -135,7 +135,7 @@ export default function PreviewPage() {
         img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
         img.src = photoUrl!;
       });
-      const { base64, mediaType, w: smallW, h: smallH } = await prepareImageForApi(photoUrl, 600);
+      const { base64, mediaType, w: smallW, h: smallH } = await prepareImageForApi(photoUrl, 1024);
 
       // Rasterize SVG design if present
       let designPayload: { base64: string; mediaType: "image/png" } | null = null;
@@ -143,12 +143,16 @@ export default function PreviewPage() {
         designPayload = await svgToPngBase64(designSvg, 512);
       }
 
-      // Convert absolute corners to percentage for previousCorners
+      // Canvas renders at max 1200px (matching BuildingCanvas MAX_CANVAS=1200)
+      const canvasW = Math.min(actualDims.w, 1200);
+      const canvasH = Math.round(actualDims.h * (canvasW / actualDims.w));
+
+      // Convert absolute canvas corners to percentage for previousCorners
       let previousCornersPct: Record<string, [number, number]> | undefined;
-      if (prevCorners && smallW && smallH) {
+      if (prevCorners && canvasW && canvasH) {
         const toPct = (pt: [number, number]): [number, number] => [
-          Math.round((pt[0] / smallW) * 1000) / 10,
-          Math.round((pt[1] / smallH) * 1000) / 10,
+          Math.round((pt[0] / canvasW) * 1000) / 10,
+          Math.round((pt[1] / canvasH) * 1000) / 10,
         ];
         previousCornersPct = {
           topLeft: toPct(prevCorners.topLeft),
@@ -197,9 +201,9 @@ export default function PreviewPage() {
       if (data.error) {
         setAiError(data.error);
       } else if (data.corners) {
-        // Scale corners from small image to actual canvas coordinates
-        const scaleX = actualDims.w / smallW;
-        const scaleY = actualDims.h / smallH;
+        // Scale corners from small image to canvas coordinates (NOT actual photo dimensions)
+        const scaleX = canvasW / smallW;
+        const scaleY = canvasH / smallH;
         const scaled: CornerPoints = {
           topLeft: [Math.round(data.corners.topLeft[0] * scaleX), Math.round(data.corners.topLeft[1] * scaleY)],
           topRight: [Math.round(data.corners.topRight[0] * scaleX), Math.round(data.corners.topRight[1] * scaleY)],
