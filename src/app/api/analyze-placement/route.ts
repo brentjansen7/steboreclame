@@ -48,12 +48,15 @@ const buildUserPrompt = (
 
 ${hasDesign ? "IMAGE 1 = gevelfoto, IMAGE 2 = ontwerp (alleen ter referentie voor wat er geplaatst wordt).\n" : "IMAGE 1 = gevelfoto.\n"}
 Taak / Task:
-1. Identificeer de doellocatie op IMAGE 1 op basis van de instructie.
-   Als de gebruiker zegt "vervang het Blokker logo" → zoek het Blokker bord/logo op de foto.
-   Als de gebruiker zegt "boven de deur" → zoek het gebied boven de ingang.
-2. Geef de bounding quad van de volledige locatie (inclusief het hele paneel/bord, niet alleen de tekst), rekening houdend met perspectief.
+1. Identificeer de PRECIEZE doellocatie op IMAGE 1 op basis van de instructie.
+   Als de gebruiker zegt "vervang het Blokker logo" → zoek ALLEEN het Blokker logo/tekst, niet het omliggende gebied.
+   Als de gebruiker zegt "boven de deur" → bepaal EXACT het gebied boven de deur, geen extra spatie.
+2. Bepaal de MINIMALE bounding quad die PRECIES rond het doel past — eerder KLEIN dan GROOT.
+   Geen overlap met andere elementen (deuren, ramen, andere borden).
+   Dit is KRITIEK: als je onzeker bent over grenzen, maak het liever kleiner.
 3. De vier hoeken moeten met de klok mee, startend linksboven.
-4. Indien je de locatie niet kunt vinden, stel "found": false in.`;
+4. Gebruik het zichtbare coördinaten-grid om EXACTE percentages af te lezen.
+5. Indien je de locatie niet kunt vinden, stel "found": false in.`;
 
   if (previousCorners) {
     prompt += `\n\nVorige plaatsing (voor verfijning) / Previous placement (for refinement):
@@ -66,10 +69,17 @@ Pas aan op basis van de verfijningsinstructie.`;
 
   prompt += `
 
-Stap 1: Lees het gele coördinaten-grid af op IMAGE 1 om de locatie te bepalen.
-Step 1: Read the yellow coordinate grid on IMAGE 1 to determine the location.
-Stap 2: Geef de exacte hoekcoördinaten als percentages van het grid.
-Step 2: Return exact corner coordinates as percentages read from the grid.
+Stap 1: Lees het gele coördinaten-grid nauwkeurig af op IMAGE 1.
+Step 1: Carefully read the yellow coordinate grid on IMAGE 1.
+Stap 2: Bepaal de MINIMALE rechthoek rond het doel zelf — GEEN extra ruimte, GEEN overlap.
+Step 2: Determine the MINIMAL rectangle around the target only — NO extra space, NO overlap.
+Stap 3: Geef de vier hoeken als percentages direct van het grid.
+Step 3: Return the four corners as percentages read directly from the grid.
+
+CONTROLEER JE ANTWOORD:
+- Zijn de hoeken PRECIES rond het doel? ✓
+- Bedekt de rechthoek NIETS anders? ✓
+- Klopt het met het zichtbare grid? ✓
 
 Geef ALLEEN dit JSON-object terug (geen markdown, geen uitleg):
 {
@@ -84,7 +94,8 @@ Geef ALLEEN dit JSON-object terug (geen markdown, geen uitleg):
 }
 
 X = 0-100 (links naar rechts), Y = 0-100 (boven naar onder), als percentage van IMAGE 1.
-Gebruik reële getallen (bijv. 42.7), geen strings.`;
+Gebruik reële getallen (bijv. 42.7), geen strings.
+Let op: MINIMAAL = eerder 5% te klein dan 5% te groot.`;
 
   return prompt;
 };
