@@ -150,6 +150,72 @@ export default function PreviewPage() {
     });
   }
 
+  function cropImageForRefinement(
+    dataUrl: string,
+    roughCorners: CornerPoints,
+    smallW: number,
+    smallH: number
+  ): Promise<{
+    base64: string;
+    mediaType: string;
+    w: number;
+    h: number;
+    cropPct: { x1: number; y1: number; x2: number; y2: number };
+  }> {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        // Rough corners are in smallW/smallH space, convert to percentages
+        const x1_pct = Math.max(0, (roughCorners.topLeft[0] / smallW) * 100);
+        const y1_pct = Math.max(0, (roughCorners.topLeft[1] / smallH) * 100);
+        const x2_pct = Math.min(100, (roughCorners.bottomRight[0] / smallW) * 100);
+        const y2_pct = Math.min(100, (roughCorners.bottomRight[1] / smallH) * 100);
+
+        // Add 40% margin
+        const w_pct = x2_pct - x1_pct;
+        const h_pct = y2_pct - y1_pct;
+        const margin_x = w_pct * 0.4;
+        const margin_y = h_pct * 0.4;
+
+        const crop_x1_pct = Math.max(0, x1_pct - margin_x);
+        const crop_y1_pct = Math.max(0, y1_pct - margin_y);
+        const crop_x2_pct = Math.min(100, x2_pct + margin_x);
+        const crop_y2_pct = Math.min(100, y2_pct + margin_y);
+
+        // Convert to original image pixel coordinates
+        const crop_x1_px = (crop_x1_pct / 100) * img.naturalWidth;
+        const crop_y1_px = (crop_y1_pct / 100) * img.naturalHeight;
+        const crop_w_px = ((crop_x2_pct - crop_x1_pct) / 100) * img.naturalWidth;
+        const crop_h_px = ((crop_y2_pct - crop_y1_pct) / 100) * img.naturalHeight;
+
+        // Create canvas for cropped image, scale to max 1024px
+        const scale = Math.min(1024 / crop_w_px, 1024 / crop_h_px, 1);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(crop_w_px * scale);
+        canvas.height = Math.round(crop_h_px * scale);
+        const ctx = canvas.getContext("2d")!;
+
+        // Draw the cropped region
+        ctx.drawImage(img, crop_x1_px, crop_y1_px, crop_w_px, crop_h_px, 0, 0, canvas.width, canvas.height);
+
+        // Draw coordinate grid
+        drawCoordGrid(ctx, canvas.width, canvas.height);
+
+        const jpegDataUrl = canvas.toDataURL("image/jpeg", 0.88);
+        const base64 = jpegDataUrl.split(",")[1];
+
+        resolve({
+          base64,
+          mediaType: "image/jpeg",
+          w: canvas.width,
+          h: canvas.height,
+          cropPct: { x1: crop_x1_pct, y1: crop_y1_pct, x2: crop_x2_pct, y2: crop_y2_pct },
+        });
+      };
+      img.src = dataUrl;
+    });
+  }
+
   async function callAnalyzeApi(
     promptText: string,
     prevCorners?: CornerPoints
@@ -193,6 +259,7 @@ export default function PreviewPage() {
         };
       }
 
+      // PASS 1: Rough detection with full image
       const response = await fetch("/api/analyze-placement", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -231,24 +298,105 @@ export default function PreviewPage() {
 
       if (data.error) {
         setAiError(data.error);
-      } else if (data.corners) {
-        // Scale corners from small image to canvas coordinates (NOT actual photo dimensions)
-        const scaleX = canvasW / smallW;
-        const scaleY = canvasH / smallH;
-        const scaled: CornerPoints = {
-          topLeft: [Math.round(data.corners.topLeft[0] * scaleX), Math.round(data.corners.topLeft[1] * scaleY)],
-          topRight: [Math.round(data.corners.topRight[0] * scaleX), Math.round(data.corners.topRight[1] * scaleY)],
-          bottomRight: [Math.round(data.corners.bottomRight[0] * scaleX), Math.round(data.corners.bottomRight[1] * scaleY)],
-          bottomLeft: [Math.round(data.corners.bottomLeft[0] * scaleX), Math.round(data.corners.bottomLeft[1] * scaleY)],
-        };
-        setCorners(scaled);
-        setAiFeedback({
-          found: data.found ?? true,
-          confidence: data.confidence ?? 0.7,
-          reasoning: data.reasoning ?? "",
-          targetDescription: data.targetDescription ?? "",
-        });
-        if (data.raw) setRawResponse(data.raw);
+      } else if (data.corners && data.found) {
+        // PASS 2: Refined detection on cropped region
+        try {
+          const crop = await cropImageForRefinement(photoUrl, data.corners, smallW, smallH);
+
+          // Call API again with cropped image
+          const refineResponse = await fetch("/api/analyze-placement", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              photoBase64: crop.base64,
+              mediaType: crop.mediaType,
+              instruction: promptText,
+              photoWidth: crop.w,
+              photoHeight: crop.h,
+              isCrop: true,
+            }),
+          });
+
+          const refineText = await refineResponse.text();
+          let refineData: any;
+          try {
+            refineData = JSON.parse(refineText);
+          } catch {
+            // Fallback to Pass 1 result if Pass 2 fails
+            refineData = null;
+          }
+
+          // Use refined result if available, otherwise fall back to rough result
+          let finalCorners = data.corners;
+          let finalFeedback = {
+            found: data.found ?? true,
+            confidence: data.confidence ?? 0.7,
+            reasoning: data.reasoning ?? "",
+            targetDescription: data.targetDescription ?? "",
+          };
+
+          if (refineData?.corners && refineData?.found) {
+            // Map Pass 2 coordinates (crop space) back to full image coordinates
+            const cropPct = crop.cropPct;
+            const remappedCorners: CornerPoints = {
+              topLeft: [
+                Math.round((cropPct.x1 + (refineData.corners.topLeft[0] / crop.w) * (cropPct.x2 - cropPct.x1)) / 100 * smallW),
+                Math.round((cropPct.y1 + (refineData.corners.topLeft[1] / crop.h) * (cropPct.y2 - cropPct.y1)) / 100 * smallH),
+              ],
+              topRight: [
+                Math.round((cropPct.x1 + (refineData.corners.topRight[0] / crop.w) * (cropPct.x2 - cropPct.x1)) / 100 * smallW),
+                Math.round((cropPct.y1 + (refineData.corners.topRight[1] / crop.h) * (cropPct.y2 - cropPct.y1)) / 100 * smallH),
+              ],
+              bottomRight: [
+                Math.round((cropPct.x1 + (refineData.corners.bottomRight[0] / crop.w) * (cropPct.x2 - cropPct.x1)) / 100 * smallW),
+                Math.round((cropPct.y1 + (refineData.corners.bottomRight[1] / crop.h) * (cropPct.y2 - cropPct.y1)) / 100 * smallH),
+              ],
+              bottomLeft: [
+                Math.round((cropPct.x1 + (refineData.corners.bottomLeft[0] / crop.w) * (cropPct.x2 - cropPct.x1)) / 100 * smallW),
+                Math.round((cropPct.y1 + (refineData.corners.bottomLeft[1] / crop.h) * (cropPct.y2 - cropPct.y1)) / 100 * smallH),
+              ],
+            };
+            finalCorners = remappedCorners;
+            finalFeedback = {
+              found: refineData.found ?? true,
+              confidence: refineData.confidence ?? 0.7,
+              reasoning: refineData.reasoning ?? "",
+              targetDescription: refineData.targetDescription ?? "",
+            };
+          }
+
+          // Scale corners from small image to canvas coordinates
+          const scaleX = canvasW / smallW;
+          const scaleY = canvasH / smallH;
+          const scaled: CornerPoints = {
+            topLeft: [Math.round(finalCorners.topLeft[0] * scaleX), Math.round(finalCorners.topLeft[1] * scaleY)],
+            topRight: [Math.round(finalCorners.topRight[0] * scaleX), Math.round(finalCorners.topRight[1] * scaleY)],
+            bottomRight: [Math.round(finalCorners.bottomRight[0] * scaleX), Math.round(finalCorners.bottomRight[1] * scaleY)],
+            bottomLeft: [Math.round(finalCorners.bottomLeft[0] * scaleX), Math.round(finalCorners.bottomLeft[1] * scaleY)],
+          };
+
+          setCorners(scaled);
+          setAiFeedback(finalFeedback);
+          if (refineData?.raw) setRawResponse(refineData.raw);
+        } catch (cropError) {
+          // If cropping fails, fall back to Pass 1 result
+          const scaleX = canvasW / smallW;
+          const scaleY = canvasH / smallH;
+          const scaled: CornerPoints = {
+            topLeft: [Math.round(data.corners.topLeft[0] * scaleX), Math.round(data.corners.topLeft[1] * scaleY)],
+            topRight: [Math.round(data.corners.topRight[0] * scaleX), Math.round(data.corners.topRight[1] * scaleY)],
+            bottomRight: [Math.round(data.corners.bottomRight[0] * scaleX), Math.round(data.corners.bottomRight[1] * scaleY)],
+            bottomLeft: [Math.round(data.corners.bottomLeft[0] * scaleX), Math.round(data.corners.bottomLeft[1] * scaleY)],
+          };
+          setCorners(scaled);
+          setAiFeedback({
+            found: data.found ?? true,
+            confidence: data.confidence ?? 0.7,
+            reasoning: data.reasoning ?? "",
+            targetDescription: data.targetDescription ?? "",
+          });
+          if (data.raw) setRawResponse(data.raw);
+        }
       } else {
         setAiError("Geen plaatsing ontvangen. Probeer opnieuw.");
       }

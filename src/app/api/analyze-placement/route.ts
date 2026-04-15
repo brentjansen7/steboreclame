@@ -42,60 +42,69 @@ Your response is ALWAYS valid JSON, no markdown fences, no extra prose.`;
 const buildUserPrompt = (
   instruction: string,
   hasDesign: boolean,
-  previousCorners?: Record<string, [number, number]>
+  previousCorners?: Record<string, [number, number]>,
+  isCrop?: boolean
 ) => {
   let prompt = `Gebruikersinstructie / User instruction: "${instruction}"
 
-${hasDesign ? "IMAGE 1 = gevelfoto, IMAGE 2 = ontwerp (alleen ter referentie voor wat er geplaatst wordt).\n" : "IMAGE 1 = gevelfoto.\n"}
-Taak / Task:
-1. Identificeer de PRECIEZE doellocatie op IMAGE 1 op basis van de instructie.
-   Als de gebruiker zegt "vervang het Blokker logo" → zoek ALLEEN het Blokker logo/tekst, niet het omliggende gebied.
-   Als de gebruiker zegt "boven de deur" → bepaal EXACT het gebied boven de deur, geen extra spatie.
-2. Bepaal de MINIMALE bounding quad die PRECIES rond het doel past — eerder KLEIN dan GROOT.
-   Geen overlap met andere elementen (deuren, ramen, andere borden).
-   Dit is KRITIEK: als je onzeker bent over grenzen, maak het liever kleiner.
-3. De vier hoeken moeten met de klok mee, startend linksboven.
-4. Gebruik het zichtbare coördinaten-grid om EXACTE percentages af te lezen.
-5. Indien je de locatie niet kunt vinden, stel "found": false in.`;
+${hasDesign ? "IMAGE 1 = gevelfoto, IMAGE 2 = ontwerp (alleen ter referentie).\n" : "IMAGE 1 = gevelfoto.\n"}${isCrop ? "⚠️ OPGELET: Dit is een INZOOM van het pand (crop). Het grid 0-100% dekt ALLEEN dit uitvergrote gedeelte.\n\n" : ""}
+ALGORITME: Identificeer de 4 GRENZEN van het object, dan construeer corners.
 
-  if (previousCorners) {
-    prompt += `\n\nVorige plaatsing (voor verfijning) / Previous placement (for refinement):
-topLeftPct: [${previousCorners.topLeft[0]}, ${previousCorners.topLeft[1]}]
-topRightPct: [${previousCorners.topRight[0]}, ${previousCorners.topRight[1]}]
-bottomRightPct: [${previousCorners.bottomRight[0]}, ${previousCorners.bottomRight[1]}]
-bottomLeftPct: [${previousCorners.bottomLeft[0]}, ${previousCorners.bottomLeft[1]}]
-Pas aan op basis van de verfijningsinstructie.`;
-  }
+Stap 1: FIND object
+   Zoek het object dat de gebruiker noemt. Scan systematisch.
 
-  prompt += `
+Stap 2: MEASURE edges — lees PRECIES van het gele grid
+   - LINKERRAND (LEFT): Welke X-waarde? (0-100, precies)
+   - RECHTERRAND (RIGHT): Welke X-waarde? (0-100, precies)
+   - BOVENKANT (TOP): Welke Y-waarde? (0-100, precies)
+   - ONDERKANT (BOTTOM): Welke Y-waarde? (0-100, precies)
 
-Stap 1: Lees het gele coördinaten-grid nauwkeurig af op IMAGE 1.
-Step 1: Carefully read the yellow coordinate grid on IMAGE 1.
-Stap 2: Bepaal de MINIMALE rechthoek rond het doel zelf — GEEN extra ruimte, GEEN overlap.
-Step 2: Determine the MINIMAL rectangle around the target only — NO extra space, NO overlap.
-Stap 3: Geef de vier hoeken als percentages direct van het grid.
-Step 3: Return the four corners as percentages read directly from the grid.
+Stap 3: VERIFY jouw antwoord
+   □ Dekt de rechthoek ONLY het object? JA
+   □ Andere elementen buiten de box? JA
+   □ Gridlijn-nauwkeurig gemeten? JA
 
-CONTROLEER JE ANTWOORD:
-- Zijn de hoeken PRECIES rond het doel? ✓
-- Bedekt de rechthoek NIETS anders? ✓
-- Klopt het met het zichtbare grid? ✓
+Stap 4: CONSTRUCT corners
+   topLeftPct     = [LEFT, TOP]
+   topRightPct    = [RIGHT, TOP]
+   bottomRightPct = [RIGHT, BOTTOM]
+   bottomLeftPct  = [LEFT, BOTTOM]
 
-Geef ALLEEN dit JSON-object terug (geen markdown, geen uitleg):
+⚠️ VEEL WAARSCHUWINGEN:
+❌ Gegeven grens die groter is dan het object zelf = FOUT
+❌ Grens includes andere elementen (deur, raam, etc) = FOUT
+❌ "Ik schat ongeveer" zonder grid = FOUT
+
+✓ Edges zijn EXACT waar het object eindigt
+✓ Geen extra spatie, geen overlap
+✓ Gelezen rechtstreeks van gridlijnen
+
+Geef ALLEEN dit JSON-object terug (geen markdown, geen extra tekst):
 {
   "found": true,
-  "confidence": 0.85,
-  "reasoning": "Korte NL-uitleg max 150 tekens",
-  "targetDescription": "Wat je hebt gevonden, bijv. 'Blokker logo boven de ingang'",
+  "confidence": 0.95,
+  "reasoning": "Korte uitleg (max 100 chars)",
+  "targetDescription": "Wat je gevonden hebt",
   "topLeftPct":     [X, Y],
   "topRightPct":    [X, Y],
   "bottomRightPct": [X, Y],
   "bottomLeftPct":  [X, Y]
 }
 
-X = 0-100 (links naar rechts), Y = 0-100 (boven naar onder), als percentage van IMAGE 1.
-Gebruik reële getallen (bijv. 42.7), geen strings.
-Let op: MINIMAAL = eerder 5% te klein dan 5% te groot.`;
+X = 0-100, Y = 0-100 (percentages van IMAGE 1 / deze crop).
+Gebruik getallen, geen strings. Decimalen OK (bijv. 42.7).`;
+
+  if (previousCorners && !isCrop) {
+    prompt = prompt.replace("Stap 1: FIND object", `VORIGE POGING WAS FOUT:
+topLeftPct: [${previousCorners.topLeft[0]}, ${previousCorners.topLeft[1]}]
+topRightPct: [${previousCorners.topRight[0]}, ${previousCorners.topRight[1]}]
+bottomRightPct: [${previousCorners.bottomRight[0]}, ${previousCorners.bottomRight[1]}]
+bottomLeftPct: [${previousCorners.bottomLeft[0]}, ${previousCorners.bottomLeft[1]}]
+
+⚠️ DEZE KEER: VEEL KLEINER! Het vorige was 40-50% te groot.
+
+Stap 1: FIND object`);
+  }
 
   return prompt;
 };
@@ -123,6 +132,7 @@ export async function POST(request: NextRequest) {
       designBase64,
       designMediaType,
       previousCorners,
+      isCrop,
     } = await request.json();
 
     if (!photoBase64 || !instruction || !photoWidth || !photoHeight) {
@@ -157,7 +167,7 @@ export async function POST(request: NextRequest) {
 
     userContent.push({
       type: "text",
-      text: buildUserPrompt(instruction, !!designBase64, previousCorners),
+      text: buildUserPrompt(instruction, !!designBase64, previousCorners, isCrop),
     });
 
     const message = await anthropic.messages.create({
@@ -199,6 +209,37 @@ interface ParsedResult {
   confidence: number;
   reasoning: string;
   targetDescription: string;
+}
+
+function applyInwardTightening(
+  corners: {
+    topLeft: [number, number];
+    topRight: [number, number];
+    bottomRight: [number, number];
+    bottomLeft: [number, number];
+  },
+  factor: number
+) {
+  // Calculate center of the box
+  const centerX = (corners.topLeft[0] + corners.topRight[0] + corners.bottomRight[0] + corners.bottomLeft[0]) / 4;
+  const centerY = (corners.topLeft[1] + corners.topRight[1] + corners.bottomRight[1] + corners.bottomLeft[1]) / 4;
+
+  // Pull each corner towards center by (1-factor) = 1.5%
+  const tighten = (point: [number, number]): [number, number] => {
+    const dx = point[0] - centerX;
+    const dy = point[1] - centerY;
+    return [
+      Math.round(centerX + dx * factor),
+      Math.round(centerY + dy * factor),
+    ];
+  };
+
+  return {
+    topLeft: tighten(corners.topLeft),
+    topRight: tighten(corners.topRight),
+    bottomRight: tighten(corners.bottomRight),
+    bottomLeft: tighten(corners.bottomLeft),
+  };
 }
 
 function parseResponse(text: string, photoWidth: number, photoHeight: number): ParsedResult {
@@ -259,8 +300,11 @@ function parseResponse(text: string, photoWidth: number, photoHeight: number): P
           [corners.bottomLeft, corners.bottomRight] = [corners.bottomRight, corners.bottomLeft];
         }
 
+        // Apply 1.5% inward tightening to compensate for Claude's outward rounding
+        const tightened = applyInwardTightening(corners, 0.985);
+
         return {
-          corners,
+          corners: tightened,
           found: obj.found !== false,
           confidence: typeof obj.confidence === "number" ? obj.confidence : 0.7,
           reasoning: obj.reasoning || "",
