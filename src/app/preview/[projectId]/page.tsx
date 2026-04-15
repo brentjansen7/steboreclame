@@ -9,6 +9,56 @@ import { downloadPreview } from "@/lib/perspectiveEngine";
 import type { CornerPoints } from "@/lib/perspectiveEngine";
 import type { Project } from "@/types";
 
+interface AiFeedback {
+  confidence: number;
+  reasoning: string;
+  targetDescription: string;
+  found: boolean;
+}
+
+// Rasterize SVG string to PNG base64 (client-side, no CORS issues)
+function svgToPngBase64(svgText: string, maxPx = 512): Promise<{ base64: string; mediaType: "image/png" } | null> {
+  return new Promise((resolve) => {
+    const wm = svgText.match(/\bwidth\s*=\s*["']?\s*([0-9.]+)/);
+    const hm = svgText.match(/\bheight\s*=\s*["']?\s*([0-9.]+)/);
+    const vm = svgText.match(/viewBox\s*=\s*["']([^"']*)["']/);
+    let W = wm ? parseFloat(wm[1]) : 0;
+    let H = hm ? parseFloat(hm[1]) : 0;
+    if ((!W || !H) && vm) {
+      const p = vm[1].trim().split(/[\s,]+/).map(Number);
+      if (p.length === 4) { W = p[2]; H = p[3]; }
+    }
+    if (!W || W < 1) W = 800;
+    if (!H || H < 1) H = 600;
+
+    const fixed = svgText
+      .replace(/(<svg\b[^>]*?)\s+width\s*=\s*["'][^"']*["']/g, "$1")
+      .replace(/(<svg\b[^>]*?)\s+height\s*=\s*["'][^"']*["']/g, "$1")
+      .replace("<svg", `<svg width="${W}" height="${H}"`);
+
+    const scale = Math.min(1, maxPx / Math.max(W, H));
+    const cW = Math.max(1, Math.round(W * scale));
+    const cH = Math.max(1, Math.round(H * scale));
+
+    const blob = new Blob([fixed], { type: "image/svg+xml" });
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const c = document.createElement("canvas");
+      c.width = cW; c.height = cH;
+      const cx = c.getContext("2d")!;
+      cx.fillStyle = "white";
+      cx.fillRect(0, 0, cW, cH);
+      cx.drawImage(img, 0, 0, cW, cH);
+      const dataUrl = c.toDataURL("image/png");
+      resolve({ base64: dataUrl.split(",")[1], mediaType: "image/png" });
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+    img.src = url;
+  });
+}
+
 export default function PreviewPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const [project, setProject] = useState<Project | null>(null);
@@ -20,6 +70,10 @@ export default function PreviewPage() {
   const [analyzing, setAnalyzing] = useState(false);
   const [canvasRef, setCanvasRef] = useState<HTMLCanvasElement | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [aiFeedback, setAiFeedback] = useState<AiFeedback | null>(null);
+  const [showRaw, setShowRaw] = useState(false);
+  const [rawResponse, setRawResponse] = useState<string>("");
+  const [refineText, setRefineText] = useState("");
 
   useEffect(() => {
     loadProject();
@@ -39,13 +93,14 @@ export default function PreviewPage() {
 
   function handlePhotoLoaded(dataUrl: string) {
     setPhotoUrl(dataUrl);
+    setAiFeedback(null);
+    setCorners(null);
   }
 
   function handleSvgLoaded(text: string) {
     setDesignSvg(text);
   }
 
-  // Resize image and return { base64, mediaType, width, height }
   function prepareImageForApi(dataUrl: string, maxSize: number): Promise<{ base64: string; mediaType: string; w: number; h: number }> {
     return new Promise((resolve) => {
       const img = new Image();
@@ -56,7 +111,6 @@ export default function PreviewPage() {
         canvas.height = Math.round(img.height * scale);
         const ctx = canvas.getContext("2d")!;
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        // Use low quality JPEG to keep payload small
         const jpegDataUrl = canvas.toDataURL("image/jpeg", 0.5);
         const base64 = jpegDataUrl.split(",")[1];
         resolve({ base64, mediaType: "image/jpeg", w: canvas.width, h: canvas.height });
@@ -65,22 +119,44 @@ export default function PreviewPage() {
     });
   }
 
-  async function analyzeWithClaude() {
+  async function callAnalyzeApi(
+    promptText: string,
+    prevCorners?: CornerPoints
+  ) {
     setAiError(null);
+    setAiFeedback(null);
     if (!photoUrl) { setAiError("Upload eerst een gevelfoto."); return; }
-    if (!instruction.trim()) { setAiError("Typ een instructie."); return; }
+    if (!promptText.trim()) { setAiError("Typ een instructie."); return; }
     setAnalyzing(true);
 
     try {
-      // Get real photo dimensions by loading the original image
       const actualDims = await new Promise<{ w: number; h: number }>((resolve) => {
         const img = new Image();
         img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
         img.src = photoUrl!;
       });
-      const actualW = actualDims.w;
-      const actualH = actualDims.h;
       const { base64, mediaType, w: smallW, h: smallH } = await prepareImageForApi(photoUrl, 600);
+
+      // Rasterize SVG design if present
+      let designPayload: { base64: string; mediaType: "image/png" } | null = null;
+      if (designSvg) {
+        designPayload = await svgToPngBase64(designSvg, 512);
+      }
+
+      // Convert absolute corners to percentage for previousCorners
+      let previousCornersPct: Record<string, [number, number]> | undefined;
+      if (prevCorners && smallW && smallH) {
+        const toPct = (pt: [number, number]): [number, number] => [
+          Math.round((pt[0] / smallW) * 1000) / 10,
+          Math.round((pt[1] / smallH) * 1000) / 10,
+        ];
+        previousCornersPct = {
+          topLeft: toPct(prevCorners.topLeft),
+          topRight: toPct(prevCorners.topRight),
+          bottomRight: toPct(prevCorners.bottomRight),
+          bottomLeft: toPct(prevCorners.bottomLeft),
+        };
+      }
 
       const response = await fetch("/api/analyze-placement", {
         method: "POST",
@@ -88,14 +164,28 @@ export default function PreviewPage() {
         body: JSON.stringify({
           photoBase64: base64,
           mediaType,
-          instruction,
+          instruction: promptText,
           photoWidth: smallW,
           photoHeight: smallH,
+          ...(designPayload && {
+            designBase64: designPayload.base64,
+            designMediaType: designPayload.mediaType,
+          }),
+          ...(previousCornersPct && { previousCorners: previousCornersPct }),
         }),
       });
 
       const text = await response.text();
-      let data;
+      let data: {
+        corners?: CornerPoints;
+        found?: boolean;
+        confidence?: number;
+        reasoning?: string;
+        targetDescription?: string;
+        raw?: string;
+        error?: string;
+        remaining?: number;
+      };
       try {
         data = JSON.parse(text);
       } catch {
@@ -107,31 +197,42 @@ export default function PreviewPage() {
       if (data.error) {
         setAiError(data.error);
       } else if (data.corners) {
-        // Scale corners from small image coordinates to actual canvas coordinates
-        const scaleX = actualW / smallW;
-        const scaleY = actualH / smallH;
-        console.log("Claude raw:", data.raw);
-        console.log("smallW/H:", smallW, smallH, "actualW/H:", actualW, actualH, "scale:", scaleX, scaleY);
-        console.log("corners before scale:", data.corners);
-        const scaled = {
-          topLeft: [Math.round(data.corners.topLeft[0] * scaleX), Math.round(data.corners.topLeft[1] * scaleY)] as [number, number],
-          topRight: [Math.round(data.corners.topRight[0] * scaleX), Math.round(data.corners.topRight[1] * scaleY)] as [number, number],
-          bottomRight: [Math.round(data.corners.bottomRight[0] * scaleX), Math.round(data.corners.bottomRight[1] * scaleY)] as [number, number],
-          bottomLeft: [Math.round(data.corners.bottomLeft[0] * scaleX), Math.round(data.corners.bottomLeft[1] * scaleY)] as [number, number],
+        // Scale corners from small image to actual canvas coordinates
+        const scaleX = actualDims.w / smallW;
+        const scaleY = actualDims.h / smallH;
+        const scaled: CornerPoints = {
+          topLeft: [Math.round(data.corners.topLeft[0] * scaleX), Math.round(data.corners.topLeft[1] * scaleY)],
+          topRight: [Math.round(data.corners.topRight[0] * scaleX), Math.round(data.corners.topRight[1] * scaleY)],
+          bottomRight: [Math.round(data.corners.bottomRight[0] * scaleX), Math.round(data.corners.bottomRight[1] * scaleY)],
+          bottomLeft: [Math.round(data.corners.bottomLeft[0] * scaleX), Math.round(data.corners.bottomLeft[1] * scaleY)],
         };
-        console.log("corners after scale:", scaled);
         setCorners(scaled);
-        setAiError(null);
+        setAiFeedback({
+          found: data.found ?? true,
+          confidence: data.confidence ?? 0.7,
+          reasoning: data.reasoning ?? "",
+          targetDescription: data.targetDescription ?? "",
+        });
+        if (data.raw) setRawResponse(data.raw);
       } else {
-        setAiError("Geen plaatsing ontvangen van Claude. Probeer opnieuw.");
+        setAiError("Geen plaatsing ontvangen. Probeer opnieuw.");
       }
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Onbekende fout";
       setAiError(`Fout: ${msg}`);
-      console.error("Analyse mislukt:", error);
     }
 
     setAnalyzing(false);
+  }
+
+  async function analyzeWithClaude() {
+    await callAnalyzeApi(instruction);
+  }
+
+  async function refineWithClaude() {
+    if (!refineText.trim()) return;
+    await callAnalyzeApi(refineText, corners ?? undefined);
+    setRefineText("");
   }
 
   function handleCornersChange(newCorners: CornerPoints) {
@@ -140,6 +241,12 @@ export default function PreviewPage() {
 
   function handleExport(canvas: HTMLCanvasElement) {
     downloadPreview(canvas, `${project?.name || "preview"}.png`);
+  }
+
+  function confidenceColor(c: number) {
+    if (c >= 0.7) return "bg-green-100 text-green-800 border-green-200";
+    if (c >= 0.4) return "bg-amber-100 text-amber-800 border-amber-200";
+    return "bg-red-100 text-red-800 border-red-200";
   }
 
   if (loading) return <p className="text-gray-500">Laden...</p>;
@@ -188,15 +295,22 @@ export default function PreviewPage() {
               onFileLoaded={handleSvgLoaded}
               readAsText
             />
+            {designSvg && (
+              <p className="text-xs text-green-600 mt-1">SVG geladen — AI gebruikt dit als referentie</p>
+            )}
           </div>
 
+          {/* AI Placement */}
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <h3 className="font-semibold mb-2 text-sm">AI Plaatsing Assistant</h3>
+            <h3 className="font-semibold mb-2 text-sm flex items-center gap-1">
+              <span>AI Plaatsing</span>
+              <span className="text-xs font-normal text-blue-600">(Claude claude-sonnet-4-6)</span>
+            </h3>
             <textarea
               value={instruction}
               onChange={(e) => setInstruction(e.target.value)}
-              placeholder="Bijv. 'plaats het logo op de gevel boven de deur' of 'zet het ontwerp over het blokker logo'"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Bijv. 'vervang het Blokker logo door ons ontwerp' of 'plaats het SVG boven de deur'"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
               rows={3}
             />
             <button
@@ -204,10 +318,71 @@ export default function PreviewPage() {
               disabled={analyzing || !instruction.trim() || !photoUrl}
               className="w-full px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium transition-colors"
             >
-              {analyzing ? "Claude analyseert..." : "AI plaatsing berekenen"}
+              {analyzing ? (
+                <span className="flex items-center justify-center gap-2">
+                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                  </svg>
+                  Claude analyseert...
+                </span>
+              ) : "AI plaatsing berekenen"}
             </button>
+
             {aiError && (
-              <p className="text-xs text-red-600 mt-2 font-medium">{aiError}</p>
+              <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
+                {aiError}
+              </div>
+            )}
+
+            {/* AI Feedback */}
+            {aiFeedback && (
+              <div className="mt-3 space-y-2">
+                <div className={`flex items-center justify-between p-2 rounded border text-xs font-medium ${confidenceColor(aiFeedback.confidence)}`}>
+                  <span>{aiFeedback.found ? "Locatie gevonden" : "Locatie onzeker"}</span>
+                  <span>{Math.round(aiFeedback.confidence * 100)}% zekerheid</span>
+                </div>
+                {aiFeedback.targetDescription && (
+                  <p className="text-xs text-gray-600 italic">{aiFeedback.targetDescription}</p>
+                )}
+                {aiFeedback.reasoning && (
+                  <p className="text-xs text-gray-500">{aiFeedback.reasoning}</p>
+                )}
+
+                {/* Refine */}
+                <div className="border-t border-blue-200 pt-2">
+                  <p className="text-xs text-gray-500 mb-1">Verfijn plaatsing:</p>
+                  <textarea
+                    value={refineText}
+                    onChange={(e) => setRefineText(e.target.value)}
+                    placeholder="Bijv. 'maak het groter' of 'schuif naar rechts'"
+                    className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                    rows={2}
+                  />
+                  <button
+                    onClick={refineWithClaude}
+                    disabled={analyzing || !refineText.trim()}
+                    className="w-full mt-1 px-2 py-1 bg-gray-600 text-white rounded text-xs hover:bg-gray-700 disabled:opacity-50 transition-colors"
+                  >
+                    {analyzing ? "Verfijnen..." : "Verfijn"}
+                  </button>
+                </div>
+
+                {/* Raw toggle */}
+                {rawResponse && (
+                  <button
+                    onClick={() => setShowRaw((v) => !v)}
+                    className="text-xs text-gray-400 hover:text-gray-600 underline"
+                  >
+                    {showRaw ? "Verberg" : "Toon"} Claude-antwoord
+                  </button>
+                )}
+                {showRaw && rawResponse && (
+                  <pre className="text-xs bg-gray-100 p-2 rounded overflow-x-auto whitespace-pre-wrap break-all border">
+                    {rawResponse}
+                  </pre>
+                )}
+              </div>
             )}
           </div>
 
