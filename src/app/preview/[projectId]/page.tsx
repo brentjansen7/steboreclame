@@ -74,6 +74,9 @@ export default function PreviewPage() {
   const [showRaw, setShowRaw] = useState(false);
   const [rawResponse, setRawResponse] = useState<string>("");
   const [refineText, setRefineText] = useState("");
+  const [enhancedImageUrl, setEnhancedImageUrl] = useState<string | null>(null);
+  const [enhancing, setEnhancing] = useState(false);
+  const [enhanceError, setEnhanceError] = useState<string | null>(null);
 
   useEffect(() => {
     loadProject();
@@ -426,6 +429,31 @@ export default function PreviewPage() {
     downloadPreview(canvas, `${project?.name || "preview"}.png`);
   }
 
+  async function handleAIEnhance() {
+    if (!canvasRef) return;
+    setEnhancing(true);
+    setEnhanceError(null);
+    setEnhancedImageUrl(null);
+    try {
+      const dataUrl = canvasRef.toDataURL("image/jpeg", 0.92);
+      const base64 = dataUrl.split(",")[1];
+      const res = await fetch("/api/ai-enhance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageBase64: base64, mediaType: "image/jpeg" }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setEnhanceError(data.error);
+      } else {
+        setEnhancedImageUrl(`data:${data.mediaType};base64,${data.imageBase64}`);
+      }
+    } catch (err) {
+      setEnhanceError(err instanceof Error ? err.message : "Onbekende fout");
+    }
+    setEnhancing(false);
+  }
+
   function confidenceColor(c: number) {
     if (c >= 0.7) return "bg-green-100 text-green-800 border-green-200";
     if (c >= 0.4) return "bg-amber-100 text-amber-800 border-amber-200";
@@ -593,6 +621,47 @@ export default function PreviewPage() {
             initialCorners={corners}
             clickToPlace={true}
           />
+
+          {/* AI Enhance */}
+          {canvasRef && corners && (
+            <div className="mt-4">
+              <button
+                onClick={handleAIEnhance}
+                disabled={enhancing}
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors font-medium"
+              >
+                {enhancing ? (
+                  <span className="flex items-center gap-2">
+                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                    </svg>
+                    AI verbeteren...
+                  </span>
+                ) : "AI Verbeteren (fotorealistisch)"}
+              </button>
+              {enhanceError && (
+                <p className="mt-2 text-sm text-red-600">{enhanceError}</p>
+              )}
+              {enhancedImageUrl && (
+                <div className="mt-3">
+                  <p className="text-xs text-purple-700 font-medium mb-1">AI verbeterd resultaat:</p>
+                  <img
+                    src={enhancedImageUrl}
+                    alt="AI enhanced preview"
+                    className="w-full rounded-xl border border-purple-200"
+                  />
+                  <a
+                    href={enhancedImageUrl}
+                    download={`${project?.name || "preview"}-ai.jpg`}
+                    className="inline-block mt-2 px-3 py-1 bg-purple-100 text-purple-700 rounded text-sm hover:bg-purple-200 transition-colors"
+                  >
+                    Download AI preview
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
