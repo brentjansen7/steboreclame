@@ -430,17 +430,33 @@ export default function PreviewPage() {
   }
 
   async function handleAIEnhance() {
-    if (!canvasRef) return;
+    if (!photoUrl) return;
     setEnhancing(true);
     setEnhanceError(null);
     setEnhancedImageUrl(null);
     try {
-      const dataUrl = canvasRef.toDataURL("image/jpeg", 0.92);
-      const base64 = dataUrl.split(",")[1];
+      // Prepare building photo
+      const { base64: photoB64, mediaType: photoMT } = await prepareImageForApi(photoUrl, 1024);
+
+      // Prepare design SVG as PNG if available
+      let designPayload: { base64: string; mediaType: string } | null = null;
+      if (designSvg) {
+        const png = await svgToPngBase64(designSvg, 512);
+        if (png) designPayload = png;
+      }
+
       const res = await fetch("/api/ai-enhance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: base64, mediaType: "image/jpeg" }),
+        body: JSON.stringify({
+          photoBase64: photoB64,
+          photoMediaType: photoMT,
+          ...(designPayload && {
+            designBase64: designPayload.base64,
+            designMediaType: designPayload.mediaType,
+          }),
+          instruction: instruction || "Vervang het uithangbord op dit pand met het logo uit de tweede afbeelding. Fotorealistisch.",
+        }),
       });
       const data = await res.json();
       if (data.error) {

@@ -4,61 +4,77 @@ export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   try {
-    const { imageBase64, mediaType } = await req.json();
+    const { photoBase64, photoMediaType, designBase64, designMediaType, instruction } =
+      await req.json();
 
-    const apiKey = process.env.STABILITY_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       return NextResponse.json(
-        { error: "STABILITY_API_KEY niet geconfigureerd in .env.local" },
+        { error: "GEMINI_API_KEY niet geconfigureerd in .env.local" },
         { status: 500 }
       );
     }
 
-    const imageBuffer = Buffer.from(imageBase64, "base64");
-    const mimeType = (mediaType as string) || "image/jpeg";
+    const parts: object[] = [
+      {
+        inlineData: {
+          mimeType: photoMediaType || "image/jpeg",
+          data: photoBase64,
+        },
+      },
+    ];
 
-    const form = new FormData();
-    form.append(
-      "image",
-      new Blob([imageBuffer], { type: mimeType }),
-      "input.jpg"
-    );
-    form.append(
-      "prompt",
-      "photorealistic vinyl sign mounted on building facade, professional photography, natural lighting, realistic shadows, high definition, real photo"
-    );
-    form.append(
-      "negative_prompt",
-      "CGI, digital overlay, fake, blurry, watermark, text artifacts, low quality"
-    );
-    form.append("mode", "image-to-image");
-    form.append("strength", "0.30");
-    form.append("output_format", "jpeg");
+    if (designBase64) {
+      parts.push({
+        inlineData: {
+          mimeType: designMediaType || "image/png",
+          data: designBase64,
+        },
+      });
+    }
+
+    parts.push({
+      text:
+        instruction ||
+        "Vervang het uithangbord op dit pand met het logo/ontwerp uit de tweede afbeelding. Maak het fotorealistisch alsof het echt een vinyl reclame is op het gebouw.",
+    });
 
     const res = await fetch(
-      "https://api.stability.ai/v2beta/stable-image/generate/sd3",
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`,
       {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          Accept: "image/*",
-        },
-        body: form,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts }],
+          generationConfig: { responseModalities: ["IMAGE", "TEXT"] },
+        }),
       }
     );
 
+    const data = await res.json();
+
     if (!res.ok) {
-      const errText = await res.text();
       return NextResponse.json(
-        { error: `Stability AI fout ${res.status}: ${errText}` },
+        { error: `Gemini fout: ${JSON.stringify(data.error || data)}` },
         { status: 500 }
       );
     }
 
-    const buf = await res.arrayBuffer();
-    const b64 = Buffer.from(buf).toString("base64");
+    const imagePart = data.candidates?.[0]?.content?.parts?.find(
+      (p: { inlineData?: { data: string; mimeType: string } }) => p.inlineData
+    ) as { inlineData: { data: string; mimeType: string } } | undefined;
 
-    return NextResponse.json({ imageBase64: b64, mediaType: "image/jpeg" });
+    if (!imagePart) {
+      return NextResponse.json(
+        { error: "Gemini gaf geen afbeelding terug. Probeer opnieuw." },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      imageBase64: imagePart.inlineData.data,
+      mediaType: imagePart.inlineData.mimeType,
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: msg }, { status: 500 });
