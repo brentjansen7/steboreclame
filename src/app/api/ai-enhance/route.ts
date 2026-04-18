@@ -17,12 +17,15 @@ export async function POST(req: NextRequest) {
     if (!credentialsJson && process.env.VERTEX_AI_CREDENTIALS_B64) {
       console.log('[DEBUG] Decoding VERTEX_AI_CREDENTIALS_B64');
       try {
-        credentialsJson = Buffer.from(process.env.VERTEX_AI_CREDENTIALS_B64, 'base64').toString('utf8');
+        const b64Value = process.env.VERTEX_AI_CREDENTIALS_B64.trim();
+        console.log('[DEBUG] B64 value length:', b64Value.length);
+        credentialsJson = Buffer.from(b64Value, 'base64').toString('utf8');
         console.log('[DEBUG] Decoded successfully, length:', credentialsJson.length);
+        console.log('[DEBUG] Decoded first 50 chars:', credentialsJson.substring(0, 50));
       } catch (e) {
         console.error('[DEBUG] B64 decode error:', e);
         return NextResponse.json(
-          { error: "VERTEX_AI_CREDENTIALS_B64 decode error" },
+          { error: "VERTEX_AI_CREDENTIALS_B64 decode error: " + (e instanceof Error ? e.message : String(e)) },
           { status: 500 }
         );
       }
