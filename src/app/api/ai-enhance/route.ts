@@ -7,7 +7,20 @@ export async function POST(req: NextRequest) {
     const { photoBase64, photoMediaType, designBase64, designMediaType, instruction } =
       await req.json();
 
-    const credentialsJson = process.env.VERTEX_AI_CREDENTIALS;
+    let credentialsJson = process.env.VERTEX_AI_CREDENTIALS;
+
+    // If base64 encoded version exists, use that
+    if (!credentialsJson && process.env.VERTEX_AI_CREDENTIALS_B64) {
+      try {
+        credentialsJson = Buffer.from(process.env.VERTEX_AI_CREDENTIALS_B64, 'base64').toString('utf8');
+      } catch {
+        return NextResponse.json(
+          { error: "VERTEX_AI_CREDENTIALS_B64 decode error" },
+          { status: 500 }
+        );
+      }
+    }
+
     if (!credentialsJson) {
       return NextResponse.json(
         { error: "VERTEX_AI_CREDENTIALS niet geconfigureerd" },
