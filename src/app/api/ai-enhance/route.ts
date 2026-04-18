@@ -7,13 +7,20 @@ export async function POST(req: NextRequest) {
     const { photoBase64, photoMediaType, designBase64, designMediaType, instruction } =
       await req.json();
 
+    const hasJSONEnv = !!process.env.VERTEX_AI_CREDENTIALS;
+    const hasB64Env = !!process.env.VERTEX_AI_CREDENTIALS_B64;
+    console.log('[DEBUG] ENV vars present:', { hasJSONEnv, hasB64Env });
+
     let credentialsJson = process.env.VERTEX_AI_CREDENTIALS;
 
     // If base64 encoded version exists, use that
     if (!credentialsJson && process.env.VERTEX_AI_CREDENTIALS_B64) {
+      console.log('[DEBUG] Decoding VERTEX_AI_CREDENTIALS_B64');
       try {
         credentialsJson = Buffer.from(process.env.VERTEX_AI_CREDENTIALS_B64, 'base64').toString('utf8');
-      } catch {
+        console.log('[DEBUG] Decoded successfully, length:', credentialsJson.length);
+      } catch (e) {
+        console.error('[DEBUG] B64 decode error:', e);
         return NextResponse.json(
           { error: "VERTEX_AI_CREDENTIALS_B64 decode error" },
           { status: 500 }
@@ -22,16 +29,23 @@ export async function POST(req: NextRequest) {
     }
 
     if (!credentialsJson) {
+      console.error('[DEBUG] No credentials found in either env var');
       return NextResponse.json(
         { error: "VERTEX_AI_CREDENTIALS niet geconfigureerd" },
         { status: 500 }
       );
     }
 
+    console.log('[DEBUG] Credentials JSON length:', credentialsJson.length);
+    console.log('[DEBUG] First 100 chars:', credentialsJson.substring(0, 100));
+
     let credentials;
     try {
       credentials = JSON.parse(credentialsJson);
-    } catch {
+      console.log('[DEBUG] JSON parse successful, keys:', Object.keys(credentials));
+    } catch (e) {
+      console.error('[DEBUG] JSON parse error:', e);
+      console.error('[DEBUG] Full credentialsJson:', credentialsJson);
       return NextResponse.json(
         { error: "VERTEX_AI_CREDENTIALS is geen geldige JSON" },
         { status: 500 }
