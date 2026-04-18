@@ -50,9 +50,18 @@ export async function POST(req: NextRequest) {
       console.error('[DEBUG] JSON parse error:', e);
       console.error('[DEBUG] Full credentialsJson:', credentialsJson);
       return NextResponse.json(
-        { error: "VERTEX_AI_CREDENTIALS is geen geldige JSON" },
+        { error: "VERTEX_AI_CREDENTIALS is geen geldige JSON. Zie SETUP_VERTEX_CREDENTIALS.md voor setup instructies." },
         { status: 500 }
       );
+    }
+
+    // Check for required fields
+    const requiredFields = ['project_id', 'private_key', 'client_email', 'client_id'];
+    const missingFields = requiredFields.filter(f => !credentials[f]);
+    if (missingFields.length > 0) {
+      const msg = `VERTEX_AI_CREDENTIALS ontbreekt velden: ${missingFields.join(', ')}. Download een complete Service Account JSON van Google Cloud Console.`;
+      console.error('[DEBUG]', msg);
+      return NextResponse.json({ error: msg }, { status: 500 });
     }
 
     const projectId = credentials.project_id;
