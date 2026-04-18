@@ -6,7 +6,60 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
+// Nano Banana API configuration
+const NANO_BANANA_API_KEY = process.env.NANO_BANANA_API_KEY;
+const NANO_BANANA_ENDPOINT = "https://api.nanobananallms.com/v1/messages";
+
 export const maxDuration = 45;
+
+async function callNanoBananaAPI(
+  userContent: Array<{ type: string; source?: any; text?: string; image?: any }>,
+  systemPrompt: string
+) {
+  if (!NANO_BANANA_API_KEY) {
+    throw new Error("NANO_BANANA_API_KEY not configured");
+  }
+
+  // Convert userContent to Nano Banana format
+  const formattedContent = userContent.map((item: any) => {
+    if (item.type === "text") {
+      return { type: "text", text: item.text };
+    } else if (item.type === "image") {
+      return {
+        type: "image",
+        source: item.source,
+      };
+    }
+    return item;
+  });
+
+  const response = await fetch(NANO_BANANA_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${NANO_BANANA_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 800,
+      system: systemPrompt,
+      messages: [
+        {
+          role: "user",
+          content: formattedContent,
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Nano Banana API error: ${response.status} ${errorText}`);
+  }
+
+  const data = await response.json();
+  return data.content[0].text;
+}
 
 const SYSTEM_PROMPT = `Je bent een precisie-assistent voor een vinylreclame-bedrijf. Je bepaalt waar een reclameontwerp op een gevelfoto geplaatst moet worden.
 You are a precision assistant for a vinyl sign company. You determine where a sign design should be placed on a building photo.
@@ -170,15 +223,30 @@ export async function POST(request: NextRequest) {
       text: buildUserPrompt(instruction, !!designBase64, previousCorners, isCrop),
     });
 
-    const message = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 800,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: userContent }],
-    });
+    let responseText = "";
+    let usedProvider = "anthropic";
 
-    const responseText =
-      message.content[0].type === "text" ? message.content[0].text : "";
+    // Try Nano Banana first, fall back to Anthropic
+    try {
+      responseText = await callNanoBananaAPI(userContent, SYSTEM_PROMPT);
+      usedProvider = "nano-banana";
+    } catch (nanoBananaError) {
+      console.warn("Nano Banana failed, falling back to Anthropic:", nanoBananaError);
+      try {
+        const message = await anthropic.messages.create({
+          model: "claude-sonnet-4-6",
+          max_tokens: 800,
+          system: SYSTEM_PROMPT,
+          messages: [{ role: "user", content: userContent }],
+        });
+        responseText =
+          message.content[0].type === "text" ? message.content[0].text : "";
+        usedProvider = "anthropic";
+      } catch (anthropicError) {
+        console.error("Both APIs failed:", anthropicError);
+        throw new Error(`Both Nano Banana and Anthropic APIs failed: ${anthropicError}`);
+      }
+    }
 
     const parsed = parseResponse(responseText, photoWidth, photoHeight);
 
@@ -190,6 +258,7 @@ export async function POST(request: NextRequest) {
       targetDescription: parsed.targetDescription,
       remaining,
       raw: responseText,
+      provider: usedProvider,
     });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : JSON.stringify(error);
