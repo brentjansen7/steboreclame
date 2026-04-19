@@ -604,26 +604,26 @@ export default function PreviewPage() {
         compositeB64 = out.toDataURL("image/jpeg", 0.92).split(",")[1];
       }
 
-      const { base64: cleanB64 } = await prepareImageForImagen(photoUrl, 1024);
-      const photoToSend = compositeB64 ?? cleanB64;
-      const { base64: squareB64 } = await padToSquareBase64(photoToSend, "image/jpeg");
-
-      const promptToSend = instruction || (compositeB64
-        ? "Make the sign on this building completely photorealistic. Add lighting, shadows, and texture so the sign looks like a real installed vinyl banner on the building facade. Keep the exact design and colors."
-        : "Replace the store sign on this building with a professional photorealistic vinyl sign.");
-
-      const res = await fetch("/api/ai-enhance", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          photoBase64: squareB64,
-          photoMediaType: "image/jpeg",
-          instruction: promptToSend,
-        }),
-      });
-      const data = await res.json();
-      if (data.error) setEnhanceError(data.error);
-      else setEnhancedImageUrl(`data:${data.mediaType};base64,${data.imageBase64}`);
+      if (compositeB64) {
+        // Return composite directly — Imagen distorts the design
+        setEnhancedImageUrl(`data:image/jpeg;base64,${compositeB64}`);
+      } else {
+        // No composite: fall back to Imagen with clean photo
+        const { base64: cleanB64 } = await prepareImageForImagen(photoUrl, 1024);
+        const { base64: squareB64 } = await padToSquareBase64(cleanB64, "image/jpeg");
+        const res = await fetch("/api/ai-enhance", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            photoBase64: squareB64,
+            photoMediaType: "image/jpeg",
+            instruction: instruction || "Replace the store sign on this building with a professional vinyl sign.",
+          }),
+        });
+        const data = await res.json();
+        if (data.error) setEnhanceError(data.error);
+        else setEnhancedImageUrl(`data:${data.mediaType};base64,${data.imageBase64}`);
+      }
     } catch (err) {
       setEnhanceError(err instanceof Error ? err.message : "Onbekende fout");
     }
