@@ -471,10 +471,31 @@ export default function PreviewPage() {
         if (png) designPayload = png;
       }
 
-      // Generate mask from corners if available
+      // Generate mask from corners (manual or auto-detected)
       let maskBase64: string | null = null;
       if (corners && canvasRef) {
         maskBase64 = cornersToMaskBase64(corners, canvasRef.width, canvasRef.height, apiW, apiH);
+      } else {
+        // Auto-detect sign area via analyze-placement
+        try {
+          const analyzeRes = await fetch("/api/analyze-placement", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              photoBase64: photoB64,
+              mediaType: photoMT,
+              instruction: "Detecteer het uithangbord, gevelreclame of logo op dit gebouw.",
+              photoWidth: apiW,
+              photoHeight: apiH,
+            }),
+          });
+          const analyzeData = await analyzeRes.json();
+          if (analyzeData.corners && analyzeData.found) {
+            maskBase64 = cornersToMaskBase64(analyzeData.corners, apiW, apiH, apiW, apiH);
+          }
+        } catch {
+          // Continue without mask if auto-detect fails
+        }
       }
 
       const res = await fetch("/api/ai-enhance", {
