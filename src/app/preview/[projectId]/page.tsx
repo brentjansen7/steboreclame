@@ -16,6 +16,27 @@ interface AiFeedback {
   found: boolean;
 }
 
+function padToSquareBase64(
+  base64: string, mediaType: string
+): Promise<{ base64: string; size: number; offsetX: number; offsetY: number }> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const size = Math.max(img.width, img.height);
+      const offsetX = Math.floor((size - img.width) / 2);
+      const offsetY = Math.floor((size - img.height) / 2);
+      const c = document.createElement("canvas");
+      c.width = size; c.height = size;
+      const ctx = c.getContext("2d")!;
+      ctx.fillStyle = "#888";
+      ctx.fillRect(0, 0, size, size);
+      ctx.drawImage(img, offsetX, offsetY);
+      resolve({ base64: c.toDataURL("image/jpeg", 0.88).split(",")[1], size, offsetX, offsetY });
+    };
+    img.src = `data:${mediaType};base64,${base64}`;
+  });
+}
+
 function cornersToMaskBase64(
   corners: { topLeft: [number, number]; topRight: [number, number]; bottomRight: [number, number]; bottomLeft: [number, number] },
   canvasW: number, canvasH: number,
@@ -461,7 +482,7 @@ export default function PreviewPage() {
     setEnhanceError(null);
     setEnhancedImageUrl(null);
     try {
-      // Prepare building photo
+      // Prepare building photo (max 1024px)
       const { base64: photoB64, mediaType: photoMT, w: apiW, h: apiH } = await prepareImageForApi(photoUrl, 1024);
 
       // Prepare design SVG as PNG if available
@@ -471,39 +492,54 @@ export default function PreviewPage() {
         if (png) designPayload = png;
       }
 
-      // Generate mask from corners (manual or auto-detected)
-      let maskBase64: string | null = null;
+      // Get corners in apiW x apiH space (manual or auto-detected)
+      let apiCorners: { topLeft: [number,number]; topRight: [number,number]; bottomRight: [number,number]; bottomLeft: [number,number] } | null = null;
       if (corners && canvasRef) {
-        maskBase64 = cornersToMaskBase64(corners, canvasRef.width, canvasRef.height, apiW, apiH);
+        const sx = apiW / canvasRef.width;
+        const sy = apiH / canvasRef.height;
+        apiCorners = {
+          topLeft:     [corners.topLeft[0] * sx,     corners.topLeft[1] * sy],
+          topRight:    [corners.topRight[0] * sx,    corners.topRight[1] * sy],
+          bottomRight: [corners.bottomRight[0] * sx, corners.bottomRight[1] * sy],
+          bottomLeft:  [corners.bottomLeft[0] * sx,  corners.bottomLeft[1] * sy],
+        };
       } else {
-        // Auto-detect sign area via analyze-placement
         try {
           const analyzeRes = await fetch("/api/analyze-placement", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              photoBase64: photoB64,
-              mediaType: photoMT,
+              photoBase64: photoB64, mediaType: photoMT,
               instruction: "Detecteer het uithangbord, gevelreclame of logo op dit gebouw.",
-              photoWidth: apiW,
-              photoHeight: apiH,
+              photoWidth: apiW, photoHeight: apiH,
             }),
           });
           const analyzeData = await analyzeRes.json();
-          if (analyzeData.corners && analyzeData.found) {
-            maskBase64 = cornersToMaskBase64(analyzeData.corners, apiW, apiH, apiW, apiH);
-          }
-        } catch {
-          // Continue without mask if auto-detect fails
-        }
+          if (analyzeData.corners && analyzeData.found) apiCorners = analyzeData.corners;
+        } catch { /* continue without mask */ }
+      }
+
+      // Pad photo to square so Imagen allows 3 references (RAW + MASK + SUBJECT)
+      const { base64: squareB64, size: squareSize, offsetX, offsetY } = await padToSquareBase64(photoB64, photoMT);
+
+      // Generate mask in square space (shift corners by padding offset)
+      let maskBase64: string | null = null;
+      if (apiCorners) {
+        const shifted = {
+          topLeft:     [apiCorners.topLeft[0] + offsetX,     apiCorners.topLeft[1] + offsetY] as [number,number],
+          topRight:    [apiCorners.topRight[0] + offsetX,    apiCorners.topRight[1] + offsetY] as [number,number],
+          bottomRight: [apiCorners.bottomRight[0] + offsetX, apiCorners.bottomRight[1] + offsetY] as [number,number],
+          bottomLeft:  [apiCorners.bottomLeft[0] + offsetX,  apiCorners.bottomLeft[1] + offsetY] as [number,number],
+        };
+        maskBase64 = cornersToMaskBase64(shifted, squareSize, squareSize, squareSize, squareSize);
       }
 
       const res = await fetch("/api/ai-enhance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          photoBase64: photoB64,
-          photoMediaType: photoMT,
+          photoBase64: squareB64,
+          photoMediaType: "image/jpeg",
           ...(designPayload && {
             designBase64: designPayload.base64,
             designMediaType: designPayload.mediaType,
