@@ -572,21 +572,64 @@ export default function PreviewPage() {
         // 1. Draw original building photo
         ctx.drawImage(buildingImg, 0, 0);
 
-        // 2. White-fill the sign area to erase the existing sign
-        ctx.fillStyle = "white";
+        // Helper to draw sign polygon path
+        const signPath = () => {
+          ctx.beginPath();
+          ctx.moveTo(natCorners.topLeft[0], natCorners.topLeft[1]);
+          ctx.lineTo(natCorners.topRight[0], natCorners.topRight[1]);
+          ctx.lineTo(natCorners.bottomRight[0], natCorners.bottomRight[1]);
+          ctx.lineTo(natCorners.bottomLeft[0], natCorners.bottomLeft[1]);
+          ctx.closePath();
+        };
+
+        // 2. Cast shadow below the sign onto the wall
+        const shadowH = Math.max(signH * 0.15, 20);
+        const shadowGrad = ctx.createLinearGradient(
+          0, natCorners.bottomLeft[1],
+          0, natCorners.bottomLeft[1] + shadowH
+        );
+        shadowGrad.addColorStop(0, "rgba(0,0,0,0.35)");
+        shadowGrad.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.save();
+        ctx.fillStyle = shadowGrad;
         ctx.beginPath();
-        ctx.moveTo(natCorners.topLeft[0], natCorners.topLeft[1]);
-        ctx.lineTo(natCorners.topRight[0], natCorners.topRight[1]);
-        ctx.lineTo(natCorners.bottomRight[0], natCorners.bottomRight[1]);
-        ctx.lineTo(natCorners.bottomLeft[0], natCorners.bottomLeft[1]);
+        ctx.moveTo(natCorners.bottomLeft[0] - 4, natCorners.bottomLeft[1]);
+        ctx.lineTo(natCorners.bottomRight[0] + 4, natCorners.bottomRight[1]);
+        ctx.lineTo(natCorners.bottomRight[0] + 4, natCorners.bottomRight[1] + shadowH);
+        ctx.lineTo(natCorners.bottomLeft[0] - 4, natCorners.bottomLeft[1] + shadowH);
         ctx.closePath();
         ctx.fill();
+        ctx.restore();
 
-        // 3. Draw design with source-over (opaque, no multiply blending)
+        // 3. Draw sign board with soft drop shadow (canvas shadow API)
+        ctx.save();
+        ctx.shadowColor = "rgba(0,0,0,0.30)";
+        ctx.shadowBlur = Math.max(signH * 0.06, 8);
+        ctx.shadowOffsetX = 2;
+        ctx.shadowOffsetY = 5;
+        ctx.fillStyle = "white";
+        signPath();
+        ctx.fill();
+        ctx.restore();
+
+        // 4. White fill without shadow (crisp, on top)
+        ctx.fillStyle = "white";
+        signPath();
+        ctx.fill();
+
+        // 5. Draw design with source-over
         ctx.globalCompositeOperation = "source-over";
         ctx.globalAlpha = 1.0;
         const p = new Perspective(ctx, designCanvas);
         p.draw([natCorners.topLeft, natCorners.topRight, natCorners.bottomRight, natCorners.bottomLeft]);
+
+        // 6. Thin dark border around sign to give it a frame
+        ctx.save();
+        ctx.strokeStyle = "rgba(80,80,80,0.5)";
+        ctx.lineWidth = Math.max(natW * 0.002, 2);
+        signPath();
+        ctx.stroke();
+        ctx.restore();
 
         const scale = Math.min(1024 / compositeCanvas.width, 1024 / compositeCanvas.height, 1);
         const out = document.createElement("canvas");
