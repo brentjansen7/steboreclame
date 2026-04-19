@@ -499,58 +499,92 @@ export default function PreviewPage() {
     setEnhanceError(null);
     setEnhancedImageUrl(null);
     try {
-      // Prepare building photo: grid version for auto-detect, clean version for Imagen
-      const { base64: photoB64Grid, mediaType: photoMT, w: apiW, h: apiH } = await prepareImageForApi(photoUrl, 1024);
-      const { base64: photoB64Clean } = await prepareImageForImagen(photoUrl, 1024);
+      // Load original building photo at natural resolution
+      const buildingImg = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = photoUrl!;
+      });
+      const natW = buildingImg.naturalWidth;
+      const natH = buildingImg.naturalHeight;
 
-      // Prepare design SVG as PNG if available
-      let designPayload: { base64: string; mediaType: string } | null = null;
-      if (designSvg) {
-        const png = await svgToPngBase64(designSvg, 512);
-        if (png) designPayload = png;
-      }
-
-      // Get corners in apiW x apiH space (manual or auto-detected)
-      let apiCorners: { topLeft: [number,number]; topRight: [number,number]; bottomRight: [number,number]; bottomLeft: [number,number] } | null = null;
+      // Get corners in natural image space
+      let natCorners: CornerPoints | null = null;
       if (corners && canvasRef) {
-        const sx = apiW / canvasRef.width;
-        const sy = apiH / canvasRef.height;
-        apiCorners = {
+        const sx = natW / canvasRef.width;
+        const sy = natH / canvasRef.height;
+        natCorners = {
           topLeft:     [corners.topLeft[0] * sx,     corners.topLeft[1] * sy],
           topRight:    [corners.topRight[0] * sx,    corners.topRight[1] * sy],
           bottomRight: [corners.bottomRight[0] * sx, corners.bottomRight[1] * sy],
           bottomLeft:  [corners.bottomLeft[0] * sx,  corners.bottomLeft[1] * sy],
         };
       } else {
+        // Auto-detect corners using grid-annotated image for Claude
+        const { base64: gridB64, mediaType: gridMT, w: apiW, h: apiH } = await prepareImageForApi(photoUrl, 1024);
         try {
           const analyzeRes = await fetch("/api/analyze-placement", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              photoBase64: photoB64Grid, mediaType: photoMT,
-              instruction: "Detecteer het uithangbord, gevelreclame of logo op dit gebouw.",
+              photoBase64: gridB64, mediaType: gridMT,
+              instruction: "Detecteer het uithangbord, gevelreclame of bord op dit gebouw.",
               photoWidth: apiW, photoHeight: apiH,
             }),
           });
           const analyzeData = await analyzeRes.json();
-          if (analyzeData.corners && analyzeData.found) apiCorners = analyzeData.corners;
-        } catch { /* continue without mask */ }
+          if (analyzeData.corners && analyzeData.found) {
+            const sx = natW / apiW;
+            const sy = natH / apiH;
+            natCorners = {
+              topLeft:     [analyzeData.corners.topLeft[0] * sx,     analyzeData.corners.topLeft[1] * sy],
+              topRight:    [analyzeData.corners.topRight[0] * sx,    analyzeData.corners.topRight[1] * sy],
+              bottomRight: [analyzeData.corners.bottomRight[0] * sx, analyzeData.corners.bottomRight[1] * sy],
+              bottomLeft:  [analyzeData.corners.bottomLeft[0] * sx,  analyzeData.corners.bottomLeft[1] * sy],
+            };
+          }
+        } catch { /* continue without corners */ }
       }
 
-      // Pad clean photo to square so Imagen allows 3 references (RAW + MASK + SUBJECT)
-      const { base64: squareB64, size: squareSize, offsetX, offsetY } = await padToSquareBase64(photoB64Clean, "image/jpeg");
-
-      // Generate mask in square space (shift corners by padding offset)
-      let maskBase64: string | null = null;
-      if (apiCorners) {
-        const shifted = {
-          topLeft:     [apiCorners.topLeft[0] + offsetX,     apiCorners.topLeft[1] + offsetY] as [number,number],
-          topRight:    [apiCorners.topRight[0] + offsetX,    apiCorners.topRight[1] + offsetY] as [number,number],
-          bottomRight: [apiCorners.bottomRight[0] + offsetX, apiCorners.bottomRight[1] + offsetY] as [number,number],
-          bottomLeft:  [apiCorners.bottomLeft[0] + offsetX,  apiCorners.bottomLeft[1] + offsetY] as [number,number],
-        };
-        maskBase64 = cornersToMaskBase64(shifted, squareSize, squareSize, squareSize, squareSize);
+      // Build composite: building photo + design warped to sign area using perspectiveEngine
+      let compositeB64: string | null = null;
+      if (natCorners && designSvg) {
+        const { rasterizeSvg, drawPerspective } = await import("@/lib/perspectiveEngine");
+        const signW = Math.round(Math.max(
+          Math.hypot(natCorners.topRight[0]-natCorners.topLeft[0], natCorners.topRight[1]-natCorners.topLeft[1]),
+          Math.hypot(natCorners.bottomRight[0]-natCorners.bottomLeft[0], natCorners.bottomRight[1]-natCorners.bottomLeft[1])
+        ));
+        const signH = Math.round(Math.max(
+          Math.hypot(natCorners.bottomLeft[0]-natCorners.topLeft[0], natCorners.bottomLeft[1]-natCorners.topLeft[1]),
+          Math.hypot(natCorners.bottomRight[0]-natCorners.topRight[0], natCorners.bottomRight[1]-natCorners.topRight[1])
+        ));
+        const designCanvas = await rasterizeSvg(designSvg, Math.max(signW, 64), Math.max(signH, 64));
+        const compositeCanvas = document.createElement("canvas");
+        await drawPerspective(compositeCanvas, buildingImg, designCanvas, natCorners);
+        const scale = Math.min(1024 / compositeCanvas.width, 1024 / compositeCanvas.height, 1);
+        const out = document.createElement("canvas");
+        out.width = Math.round(compositeCanvas.width * scale);
+        out.height = Math.round(compositeCanvas.height * scale);
+        out.getContext("2d")!.drawImage(compositeCanvas, 0, 0, out.width, out.height);
+        compositeB64 = out.toDataURL("image/jpeg", 0.92).split(",")[1];
+      } else if (canvasRef && corners) {
+        // Canvas already has composite — use directly
+        const scale = Math.min(1024 / canvasRef.width, 1024 / canvasRef.height, 1);
+        const out = document.createElement("canvas");
+        out.width = Math.round(canvasRef.width * scale);
+        out.height = Math.round(canvasRef.height * scale);
+        out.getContext("2d")!.drawImage(canvasRef, 0, 0, out.width, out.height);
+        compositeB64 = out.toDataURL("image/jpeg", 0.92).split(",")[1];
       }
+
+      const { base64: cleanB64 } = await prepareImageForImagen(photoUrl, 1024);
+      const photoToSend = compositeB64 ?? cleanB64;
+      const { base64: squareB64 } = await padToSquareBase64(photoToSend, "image/jpeg");
+
+      const promptToSend = instruction || (compositeB64
+        ? "Make the sign on this building completely photorealistic. Add lighting, shadows, and texture so the sign looks like a real installed vinyl banner on the building facade. Keep the exact design and colors."
+        : "Replace the store sign on this building with a professional photorealistic vinyl sign.");
 
       const res = await fetch("/api/ai-enhance", {
         method: "POST",
@@ -558,20 +592,12 @@ export default function PreviewPage() {
         body: JSON.stringify({
           photoBase64: squareB64,
           photoMediaType: "image/jpeg",
-          ...(designPayload && {
-            designBase64: designPayload.base64,
-            designMediaType: designPayload.mediaType,
-          }),
-          ...(maskBase64 && { maskBase64 }),
-          instruction: instruction || "Replace the store sign on this building with the logo from reference image. Make it look like a real vinyl sign on the building facade. Photorealistic.",
+          instruction: promptToSend,
         }),
       });
       const data = await res.json();
-      if (data.error) {
-        setEnhanceError(data.error);
-      } else {
-        setEnhancedImageUrl(`data:${data.mediaType};base64,${data.imageBase64}`);
-      }
+      if (data.error) setEnhanceError(data.error);
+      else setEnhancedImageUrl(`data:${data.mediaType};base64,${data.imageBase64}`);
     } catch (err) {
       setEnhanceError(err instanceof Error ? err.message : "Onbekende fout");
     }

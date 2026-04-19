@@ -92,43 +92,16 @@ export async function POST(req: NextRequest) {
     const tokenData = await tokenRes.json();
     const accessToken = tokenData.access_token;
 
-    let refId = 1;
     const referenceImages: object[] = [
       {
         referenceType: "REFERENCE_TYPE_RAW",
-        referenceId: refId++,
+        referenceId: 1,
         referenceImage: { bytesBase64Encoded: photoBase64 },
       },
     ];
 
-    const maskRefId = maskBase64 ? refId++ : null;
-    if (maskBase64) {
-      referenceImages.push({
-        referenceType: "REFERENCE_TYPE_MASK",
-        referenceId: maskRefId,
-        maskImageConfig: { maskMode: "MASK_MODE_USER_PROVIDED" },
-        referenceImage: { bytesBase64Encoded: maskBase64 },
-      });
-    }
-
-    const designRefId = designBase64 ? refId++ : null;
-    if (designBase64) {
-      referenceImages.push({
-        referenceType: "REFERENCE_TYPE_SUBJECT",
-        referenceId: designRefId,
-        subjectImageConfig: { subjectType: "SUBJECT_TYPE_DEFAULT" },
-        referenceImage: { bytesBase64Encoded: designBase64 },
-      });
-    }
-
-    const editMode = maskBase64 ? "EDIT_MODE_INPAINT_INSERT" : "EDIT_MODE_DEFAULT";
-
     const prompt = instruction ||
-      (maskBase64 && designBase64
-        ? `Fill the masked sign area on this building with the logo from reference image ${designRefId}. Make it look like a real vinyl sign on the facade. Photorealistic.`
-        : designBase64
-        ? `Replace the existing sign on this building with the logo from reference image ${designRefId}. Photorealistic vinyl sign.`
-        : "Vervang het uithangbord/gevelreclame op dit pand. Maak het fotorealistisch.");
+      "Make the sign on this building completely photorealistic. Add lighting, shadows, and texture so the sign looks like a real installed vinyl banner. Keep the exact design and colors.";
 
     const res = await fetch(
       `https://us-central1-aiplatform.googleapis.com/v1/projects/${projectId}/locations/us-central1/publishers/google/models/imagen-3.0-capability-001:predict`,
@@ -140,7 +113,7 @@ export async function POST(req: NextRequest) {
         },
         body: JSON.stringify({
           instances: [{ prompt, referenceImages }],
-          parameters: { sampleCount: 1, editConfig: { editMode } },
+          parameters: { sampleCount: 1, editConfig: { editMode: "EDIT_MODE_DEFAULT" } },
         }),
       }
     );
