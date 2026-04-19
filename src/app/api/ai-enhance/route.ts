@@ -92,32 +92,27 @@ export async function POST(req: NextRequest) {
     const tokenData = await tokenRes.json();
     const accessToken = tokenData.access_token;
 
-    const parts: object[] = [
+    const referenceImages: object[] = [
       {
-        inlineData: {
-          mimeType: photoMediaType || "image/jpeg",
-          data: photoBase64,
-        },
+        referenceType: "REFERENCE_TYPE_RAW",
+        referenceId: 1,
+        referenceImage: { bytesBase64Encoded: photoBase64 },
       },
     ];
 
     if (designBase64) {
-      parts.push({
-        inlineData: {
-          mimeType: designMediaType || "image/png",
-          data: designBase64,
-        },
+      referenceImages.push({
+        referenceType: "REFERENCE_TYPE_RAW",
+        referenceId: 2,
+        referenceImage: { bytesBase64Encoded: designBase64 },
       });
     }
 
-    parts.push({
-      text:
-        instruction ||
-        "Vervang het uithangbord op dit pand met het logo/ontwerp uit de tweede afbeelding. Maak het fotorealistisch alsof het echt een vinyl reclame is op het gebouw.",
-    });
+    const prompt = instruction ||
+      "Vervang het uithangbord op dit pand met het logo/ontwerp uit de tweede afbeelding. Maak het fotorealistisch alsof het echt een vinyl reclame is op het gebouw.";
 
     const res = await fetch(
-      `https://us-central1-aiplatform.googleapis.com/v1/projects/${projectId}/locations/us-central1/publishers/google/models/imagen-3.0-generate-001:predict`,
+      `https://us-central1-aiplatform.googleapis.com/v1/projects/${projectId}/locations/us-central1/publishers/google/models/imagen-3.0-capability-001:predict`,
       {
         method: "POST",
         headers: {
@@ -125,13 +120,8 @@ export async function POST(req: NextRequest) {
           Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
-          instances: [
-            {
-              prompt:
-                instruction ||
-                "Vervang het uithangbord op dit pand met het logo/ontwerp uit de tweede afbeelding. Maak het fotorealistisch alsof het echt een vinyl reclame is op het gebouw.",
-            },
-          ],
+          instances: [{ prompt, referenceImages }],
+          parameters: { sampleCount: 1, editConfig: { editMode: "EDIT_MODE_DEFAULT" } },
         }),
       }
     );
