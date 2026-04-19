@@ -200,6 +200,23 @@ export default function PreviewPage() {
     });
   }
 
+  function prepareImageForImagen(dataUrl: string, maxSize: number): Promise<{ base64: string; mediaType: string; w: number; h: number }> {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(maxSize / img.width, maxSize / img.height, 1);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext("2d")!;
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const jpegDataUrl = canvas.toDataURL("image/jpeg", 0.92);
+        resolve({ base64: jpegDataUrl.split(",")[1], mediaType: "image/jpeg", w: canvas.width, h: canvas.height });
+      };
+      img.src = dataUrl;
+    });
+  }
+
   function cropImageForRefinement(
     dataUrl: string,
     roughCorners: CornerPoints,
@@ -482,8 +499,9 @@ export default function PreviewPage() {
     setEnhanceError(null);
     setEnhancedImageUrl(null);
     try {
-      // Prepare building photo (max 1024px)
-      const { base64: photoB64, mediaType: photoMT, w: apiW, h: apiH } = await prepareImageForApi(photoUrl, 1024);
+      // Prepare building photo: grid version for auto-detect, clean version for Imagen
+      const { base64: photoB64Grid, mediaType: photoMT, w: apiW, h: apiH } = await prepareImageForApi(photoUrl, 1024);
+      const { base64: photoB64Clean } = await prepareImageForImagen(photoUrl, 1024);
 
       // Prepare design SVG as PNG if available
       let designPayload: { base64: string; mediaType: string } | null = null;
@@ -509,7 +527,7 @@ export default function PreviewPage() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              photoBase64: photoB64, mediaType: photoMT,
+              photoBase64: photoB64Grid, mediaType: photoMT,
               instruction: "Detecteer het uithangbord, gevelreclame of logo op dit gebouw.",
               photoWidth: apiW, photoHeight: apiH,
             }),
@@ -519,8 +537,8 @@ export default function PreviewPage() {
         } catch { /* continue without mask */ }
       }
 
-      // Pad photo to square so Imagen allows 3 references (RAW + MASK + SUBJECT)
-      const { base64: squareB64, size: squareSize, offsetX, offsetY } = await padToSquareBase64(photoB64, photoMT);
+      // Pad clean photo to square so Imagen allows 3 references (RAW + MASK + SUBJECT)
+      const { base64: squareB64, size: squareSize, offsetX, offsetY } = await padToSquareBase64(photoB64Clean, "image/jpeg");
 
       // Generate mask in square space (shift corners by padding offset)
       let maskBase64: string | null = null;
@@ -545,7 +563,7 @@ export default function PreviewPage() {
             designMediaType: designPayload.mediaType,
           }),
           ...(maskBase64 && { maskBase64 }),
-          instruction: instruction || "Vervang het uithangbord op dit pand met het logo uit de tweede afbeelding. Fotorealistisch.",
+          instruction: instruction || "Replace the store sign on this building with the logo from reference image. Make it look like a real vinyl sign on the building facade. Photorealistic.",
         }),
       });
       const data = await res.json();
