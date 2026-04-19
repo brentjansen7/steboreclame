@@ -529,7 +529,7 @@ export default function PreviewPage() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               photoBase64: gridB64, mediaType: gridMT,
-              instruction: "Detecteer het uithangbord, gevelreclame of bord op dit gebouw.",
+              instruction: instruction.trim() || "Detecteer ALLEEN het kleine gevelreclame-bord / winkellogo boven de ingang. Niet de hele gevel.",
               photoWidth: apiW, photoHeight: apiH,
             }),
           });
@@ -537,12 +537,17 @@ export default function PreviewPage() {
           if (analyzeData.corners && analyzeData.found) {
             const sx = natW / apiW;
             const sy = natH / apiH;
-            natCorners = {
-              topLeft:     [analyzeData.corners.topLeft[0] * sx,     analyzeData.corners.topLeft[1] * sy],
-              topRight:    [analyzeData.corners.topRight[0] * sx,    analyzeData.corners.topRight[1] * sy],
-              bottomRight: [analyzeData.corners.bottomRight[0] * sx, analyzeData.corners.bottomRight[1] * sy],
-              bottomLeft:  [analyzeData.corners.bottomLeft[0] * sx,  analyzeData.corners.bottomLeft[1] * sy],
+            const raw = {
+              topLeft:     [analyzeData.corners.topLeft[0] * sx,     analyzeData.corners.topLeft[1] * sy] as [number,number],
+              topRight:    [analyzeData.corners.topRight[0] * sx,    analyzeData.corners.topRight[1] * sy] as [number,number],
+              bottomRight: [analyzeData.corners.bottomRight[0] * sx, analyzeData.corners.bottomRight[1] * sy] as [number,number],
+              bottomLeft:  [analyzeData.corners.bottomLeft[0] * sx,  analyzeData.corners.bottomLeft[1] * sy] as [number,number],
             };
+            // Apply 5% inward tightening: prevents sign from extending too wide
+            const cx = (raw.topLeft[0] + raw.topRight[0] + raw.bottomRight[0] + raw.bottomLeft[0]) / 4;
+            const cy = (raw.topLeft[1] + raw.topRight[1] + raw.bottomRight[1] + raw.bottomLeft[1]) / 4;
+            const tight = (pt: [number,number]): [number,number] => [cx + (pt[0]-cx)*0.93, cy + (pt[1]-cy)*0.93];
+            natCorners = { topLeft: tight(raw.topLeft), topRight: tight(raw.topRight), bottomRight: tight(raw.bottomRight), bottomLeft: tight(raw.bottomLeft) };
           }
         } catch { /* continue without corners */ }
       }
@@ -607,13 +612,13 @@ export default function PreviewPage() {
         ctx.shadowBlur = Math.max(signH * 0.06, 8);
         ctx.shadowOffsetX = 2;
         ctx.shadowOffsetY = 5;
-        ctx.fillStyle = "white";
+        ctx.fillStyle = "#f0f0f0";
         signPath();
         ctx.fill();
         ctx.restore();
 
-        // 4. White fill without shadow (crisp, on top)
-        ctx.fillStyle = "white";
+        // 4. Off-white fill without shadow (crisp, on top)
+        ctx.fillStyle = "#f0f0f0";
         signPath();
         ctx.fill();
 
