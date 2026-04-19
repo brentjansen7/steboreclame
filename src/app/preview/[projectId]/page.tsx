@@ -547,10 +547,12 @@ export default function PreviewPage() {
         } catch { /* continue without corners */ }
       }
 
-      // Build composite: building photo + design warped to sign area using perspectiveEngine
+      // Build composite: erase existing sign with white, then draw design on top
       let compositeB64: string | null = null;
       if (natCorners && designSvg) {
-        const { rasterizeSvg, drawPerspective } = await import("@/lib/perspectiveEngine");
+        const { rasterizeSvg } = await import("@/lib/perspectiveEngine");
+        const Perspective = (await import("perspectivejs")).default;
+
         const signW = Math.round(Math.max(
           Math.hypot(natCorners.topRight[0]-natCorners.topLeft[0], natCorners.topRight[1]-natCorners.topLeft[1]),
           Math.hypot(natCorners.bottomRight[0]-natCorners.bottomLeft[0], natCorners.bottomRight[1]-natCorners.bottomLeft[1])
@@ -559,9 +561,33 @@ export default function PreviewPage() {
           Math.hypot(natCorners.bottomLeft[0]-natCorners.topLeft[0], natCorners.bottomLeft[1]-natCorners.topLeft[1]),
           Math.hypot(natCorners.bottomRight[0]-natCorners.topRight[0], natCorners.bottomRight[1]-natCorners.topRight[1])
         ));
+
         const designCanvas = await rasterizeSvg(designSvg, Math.max(signW, 64), Math.max(signH, 64));
+
         const compositeCanvas = document.createElement("canvas");
-        await drawPerspective(compositeCanvas, buildingImg, designCanvas, natCorners);
+        compositeCanvas.width = natW;
+        compositeCanvas.height = natH;
+        const ctx = compositeCanvas.getContext("2d")!;
+
+        // 1. Draw original building photo
+        ctx.drawImage(buildingImg, 0, 0);
+
+        // 2. White-fill the sign area to erase the existing sign
+        ctx.fillStyle = "white";
+        ctx.beginPath();
+        ctx.moveTo(natCorners.topLeft[0], natCorners.topLeft[1]);
+        ctx.lineTo(natCorners.topRight[0], natCorners.topRight[1]);
+        ctx.lineTo(natCorners.bottomRight[0], natCorners.bottomRight[1]);
+        ctx.lineTo(natCorners.bottomLeft[0], natCorners.bottomLeft[1]);
+        ctx.closePath();
+        ctx.fill();
+
+        // 3. Draw design with source-over (opaque, no multiply blending)
+        ctx.globalCompositeOperation = "source-over";
+        ctx.globalAlpha = 1.0;
+        const p = new Perspective(ctx, designCanvas);
+        p.draw([natCorners.topLeft, natCorners.topRight, natCorners.bottomRight, natCorners.bottomLeft]);
+
         const scale = Math.min(1024 / compositeCanvas.width, 1024 / compositeCanvas.height, 1);
         const out = document.createElement("canvas");
         out.width = Math.round(compositeCanvas.width * scale);
