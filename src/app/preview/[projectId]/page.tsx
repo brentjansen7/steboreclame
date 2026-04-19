@@ -653,24 +653,20 @@ export default function PreviewPage() {
       }
 
       if (compositeB64) {
-        // Return composite directly — Imagen distorts the design
-        setEnhancedImageUrl(`data:image/jpeg;base64,${compositeB64}`);
-      } else {
-        // No composite: fall back to Imagen with clean photo
-        const { base64: cleanB64 } = await prepareImageForImagen(photoUrl, 1024);
-        const { base64: squareB64 } = await padToSquareBase64(cleanB64, "image/jpeg");
+        // Send composite to Gemini for photorealistic enhancement
         const res = await fetch("/api/ai-enhance", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            photoBase64: squareB64,
+            compositeBase64: compositeB64,
             photoMediaType: "image/jpeg",
-            instruction: instruction || "Replace the store sign on this building with a professional vinyl sign.",
           }),
         });
         const data = await res.json();
         if (data.error) setEnhanceError(data.error);
         else setEnhancedImageUrl(`data:${data.mediaType};base64,${data.imageBase64}`);
+      } else {
+        setEnhanceError("Geen ontwerp of hoekpunten gevonden om te plaatsen.");
       }
     } catch (err) {
       setEnhanceError(err instanceof Error ? err.message : "Onbekende fout");
