@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
       "This building photo has a new sign design placed on it. The sign looks flat and pasted on. Make it completely photorealistic: add natural lighting matching the building environment, cast shadows on the wall below the sign, slight depth and material texture (vinyl/aluminium). The sign should look like it has been professionally installed on this building. Keep the exact design, logo, text and colors intact — do not change or replace the design.";
 
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/nano-banana-pro-preview:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
