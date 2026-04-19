@@ -100,8 +100,19 @@ export async function POST(req: NextRequest) {
       },
     ];
 
+    if (designBase64) {
+      referenceImages.push({
+        referenceType: "REFERENCE_TYPE_SUBJECT",
+        referenceId: 2,
+        subjectImageConfig: { subjectType: "SUBJECT_TYPE_DEFAULT" },
+        referenceImage: { bytesBase64Encoded: designBase64 },
+      });
+    }
+
     const prompt = instruction ||
-      "Vervang het uithangbord/gevelreclame op dit pand met het GDB (Gevel Design Beek) logo. Maak het fotorealistisch alsof het echt een vinyl reclame is op het gebouw.";
+      (designBase64
+        ? "Replace the existing sign/billboard on this building facade with the logo from reference image 2. Make it photorealistic as if it is a real vinyl sign on the building."
+        : "Vervang het uithangbord/gevelreclame op dit pand met het GDB (Gevel Design Beek) logo. Maak het fotorealistisch alsof het echt een vinyl reclame is op het gebouw.");
 
     const res = await fetch(
       `https://us-central1-aiplatform.googleapis.com/v1/projects/${projectId}/locations/us-central1/publishers/google/models/imagen-3.0-capability-001:predict`,
