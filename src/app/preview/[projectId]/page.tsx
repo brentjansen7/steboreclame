@@ -16,6 +16,30 @@ interface AiFeedback {
   found: boolean;
 }
 
+function cornersToMaskBase64(
+  corners: { topLeft: [number, number]; topRight: [number, number]; bottomRight: [number, number]; bottomLeft: [number, number] },
+  canvasW: number, canvasH: number,
+  maskW: number, maskH: number
+): string {
+  const scaleX = maskW / canvasW;
+  const scaleY = maskH / canvasH;
+  const c = document.createElement("canvas");
+  c.width = maskW;
+  c.height = maskH;
+  const ctx = c.getContext("2d")!;
+  ctx.fillStyle = "black";
+  ctx.fillRect(0, 0, maskW, maskH);
+  ctx.fillStyle = "white";
+  ctx.beginPath();
+  ctx.moveTo(corners.topLeft[0] * scaleX, corners.topLeft[1] * scaleY);
+  ctx.lineTo(corners.topRight[0] * scaleX, corners.topRight[1] * scaleY);
+  ctx.lineTo(corners.bottomRight[0] * scaleX, corners.bottomRight[1] * scaleY);
+  ctx.lineTo(corners.bottomLeft[0] * scaleX, corners.bottomLeft[1] * scaleY);
+  ctx.closePath();
+  ctx.fill();
+  return c.toDataURL("image/png").split(",")[1];
+}
+
 // Rasterize SVG string to PNG base64 (client-side, no CORS issues)
 function svgToPngBase64(svgText: string, maxPx = 512): Promise<{ base64: string; mediaType: "image/png" } | null> {
   return new Promise((resolve) => {
@@ -438,13 +462,19 @@ export default function PreviewPage() {
     setEnhancedImageUrl(null);
     try {
       // Prepare building photo
-      const { base64: photoB64, mediaType: photoMT } = await prepareImageForApi(photoUrl, 1024);
+      const { base64: photoB64, mediaType: photoMT, w: apiW, h: apiH } = await prepareImageForApi(photoUrl, 1024);
 
       // Prepare design SVG as PNG if available
       let designPayload: { base64: string; mediaType: string } | null = null;
       if (designSvg) {
         const png = await svgToPngBase64(designSvg, 512);
         if (png) designPayload = png;
+      }
+
+      // Generate mask from corners if available
+      let maskBase64: string | null = null;
+      if (corners && canvasRef) {
+        maskBase64 = cornersToMaskBase64(corners, canvasRef.width, canvasRef.height, apiW, apiH);
       }
 
       const res = await fetch("/api/ai-enhance", {
@@ -457,6 +487,7 @@ export default function PreviewPage() {
             designBase64: designPayload.base64,
             designMediaType: designPayload.mediaType,
           }),
+          ...(maskBase64 && { maskBase64 }),
           instruction: instruction || "Vervang het uithangbord op dit pand met het logo uit de tweede afbeelding. Fotorealistisch.",
         }),
       });
