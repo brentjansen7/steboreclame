@@ -117,7 +117,7 @@ export async function POST(req: NextRequest) {
     });
 
     const res = await fetch(
-      `https://us-central1-aiplatform.googleapis.com/v1/projects/${projectId}/locations/us-central1/publishers/google/models/gemini-2.5-flash-001:generateContent`,
+      `https://us-central1-aiplatform.googleapis.com/v1/projects/${projectId}/locations/us-central1/publishers/google/models/imagen-3.0-generate-001:predict`,
       {
         method: "POST",
         headers: {
@@ -125,8 +125,13 @@ export async function POST(req: NextRequest) {
           Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
-          contents: [{ parts }],
-          generationConfig: { responseModalities: ["IMAGE", "TEXT"] },
+          instances: [
+            {
+              prompt:
+                instruction ||
+                "Vervang het uithangbord op dit pand met het logo/ontwerp uit de tweede afbeelding. Maak het fotorealistisch alsof het echt een vinyl reclame is op het gebouw.",
+            },
+          ],
         }),
       }
     );
@@ -135,25 +140,24 @@ export async function POST(req: NextRequest) {
 
     if (!res.ok) {
       return NextResponse.json(
-        { error: `Gemini fout: ${JSON.stringify(data.error || data)}` },
+        { error: `Imagen fout: ${JSON.stringify(data.error || data)}` },
         { status: res.status }
       );
     }
 
-    const imagePart = data.candidates?.[0]?.content?.parts?.find(
-      (p: { inlineData?: { data: string; mimeType: string } }) => p.inlineData
-    ) as { inlineData: { data: string; mimeType: string } } | undefined;
-
-    if (!imagePart) {
+    const predictions = data.predictions;
+    if (!predictions || predictions.length === 0) {
       return NextResponse.json(
-        { error: "Gemini gaf geen afbeelding terug. Probeer opnieuw." },
+        { error: "Imagen gaf geen afbeelding terug. Probeer opnieuw." },
         { status: 500 }
       );
     }
 
+    const imageBase64 = predictions[0].bytesBase64Encoded || predictions[0];
+
     return NextResponse.json({
-      imageBase64: imagePart.inlineData.data,
-      mediaType: imagePart.inlineData.mimeType,
+      imageBase64,
+      mediaType: "image/png",
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

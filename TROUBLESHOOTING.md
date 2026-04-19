@@ -30,14 +30,26 @@ Publisher Model `projects/stebo-vertex/locations/us-central1/publishers/google/m
    - Search for "Generative AI API" and click **Enable**
    - Search for "Cloud Logging API" and click **Enable**
 
-4. **Try a different model**:
-   - If gemini-2.5-flash-001 still doesn't work, try:
-     - `gemini-2.0-flash`
-     - `gemini-pro`
+4. **Models still not found after API enablement?**
+   - Go to **Vertex AI** → **Generative AI Studio** in Google Cloud Console
+   - Try creating a new Multimodal request
+   - Google Cloud may prompt to enable specific models
+   - This can take 5-10 minutes after enabling APIs
    
-   Edit [route.ts](src/app/api/ai-enhance/route.ts) line 111:
+5. **Try a different model**:
+   - If gemini-2.5-flash-001 still doesn't work, try:
+     - `gemini-1.5-pro-vision`
+     - `gemini-1.5-flash`
+     - `gemini-pro-vision`
+   
+   Edit [route.ts](src/app/api/ai-enhance/route.ts) line 120:
    ```typescript
-   `https://us-central1-aiplatform.googleapis.com/v1/projects/${projectId}/locations/us-central1/publishers/google/models/gemini-2.0-flash:generateContent`
+   `https://us-central1-aiplatform.googleapis.com/v1/projects/${projectId}/locations/us-central1/publishers/google/models/gemini-1.5-pro-vision:generateContent`
+   ```
+   
+6. **Check available models in your project**:
+   ```bash
+   gcloud ai models list --region=us-central1
    ```
 
 ## Error: Missing fields
