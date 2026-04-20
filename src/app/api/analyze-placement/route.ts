@@ -127,7 +127,7 @@ async function callGeminiPlacement(
   parts.push({ text: userPrompt });
 
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -204,7 +204,7 @@ export async function POST(request: NextRequest) {
       targetDescription: parsed.targetDescription,
       remaining,
       raw: responseText,
-      provider: "gemini-2.5-flash",
+      provider: "gemini-2.5-pro",
     });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : JSON.stringify(error);

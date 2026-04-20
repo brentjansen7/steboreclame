@@ -712,7 +712,7 @@ export default function PreviewPage() {
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
                   </svg>
-                  Claude analyseert...
+                  Gemini analyseert...
                 </span>
               ) : "AI plaatsing berekenen"}
             </button>
@@ -762,7 +762,7 @@ export default function PreviewPage() {
                     onClick={() => setShowRaw((v) => !v)}
                     className="text-xs text-gray-400 hover:text-gray-600 underline"
                   >
-                    {showRaw ? "Verberg" : "Toon"} Claude-antwoord
+                    {showRaw ? "Verberg" : "Toon"} Gemini-antwoord
                   </button>
                 )}
                 {showRaw && rawResponse && (
