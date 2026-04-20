@@ -364,23 +364,54 @@ export default function PreviewPage() {
       if (data.error) {
         setAiError(data.error);
       } else if (data.corners && data.found) {
-        // Scale corners from small image to canvas coordinates
-        const scaleX = canvasW / smallW;
-        const scaleY = canvasH / smallH;
-        const scaled: CornerPoints = {
-          topLeft: [Math.round(data.corners.topLeft[0] * scaleX), Math.round(data.corners.topLeft[1] * scaleY)],
-          topRight: [Math.round(data.corners.topRight[0] * scaleX), Math.round(data.corners.topRight[1] * scaleY)],
-          bottomRight: [Math.round(data.corners.bottomRight[0] * scaleX), Math.round(data.corners.bottomRight[1] * scaleY)],
-          bottomLeft: [Math.round(data.corners.bottomLeft[0] * scaleX), Math.round(data.corners.bottomLeft[1] * scaleY)],
-        };
-        setCorners(scaled);
-        setAiFeedback({
-          found: data.found ?? true,
-          confidence: data.confidence ?? 0.7,
-          reasoning: data.reasoning ?? "",
-          targetDescription: data.targetDescription ?? "",
-        });
-        if (data.raw) setRawResponse(data.raw);
+        // PASS 2: Refined detection on cropped region for better accuracy
+        try {
+          const crop = await cropImageForRefinement(photoUrl, data.corners, smallW, smallH);
+          const refineResponse = await fetch("/api/analyze-placement", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              photoBase64: crop.base64,
+              mediaType: crop.mediaType,
+              instruction: promptText,
+              photoWidth: crop.w,
+              photoHeight: crop.h,
+              isCrop: true,
+            }),
+          });
+          let refineData: any = null;
+          try { refineData = JSON.parse(await refineResponse.text()); } catch { /* use pass 1 */ }
+
+          let finalCorners = data.corners;
+          let finalFeedback = { found: data.found ?? true, confidence: data.confidence ?? 0.7, reasoning: data.reasoning ?? "", targetDescription: data.targetDescription ?? "" };
+
+          if (refineData?.corners && refineData?.found) {
+            const cp = crop.cropPct;
+            finalCorners = {
+              topLeft:     [Math.round((cp.x1 + (refineData.corners.topLeft[0]     / crop.w) * (cp.x2 - cp.x1)) / 100 * smallW), Math.round((cp.y1 + (refineData.corners.topLeft[1]     / crop.h) * (cp.y2 - cp.y1)) / 100 * smallH)],
+              topRight:    [Math.round((cp.x1 + (refineData.corners.topRight[0]    / crop.w) * (cp.x2 - cp.x1)) / 100 * smallW), Math.round((cp.y1 + (refineData.corners.topRight[1]    / crop.h) * (cp.y2 - cp.y1)) / 100 * smallH)],
+              bottomRight: [Math.round((cp.x1 + (refineData.corners.bottomRight[0] / crop.w) * (cp.x2 - cp.x1)) / 100 * smallW), Math.round((cp.y1 + (refineData.corners.bottomRight[1] / crop.h) * (cp.y2 - cp.y1)) / 100 * smallH)],
+              bottomLeft:  [Math.round((cp.x1 + (refineData.corners.bottomLeft[0]  / crop.w) * (cp.x2 - cp.x1)) / 100 * smallW), Math.round((cp.y1 + (refineData.corners.bottomLeft[1]  / crop.h) * (cp.y2 - cp.y1)) / 100 * smallH)],
+            };
+            finalFeedback = { found: refineData.found ?? true, confidence: refineData.confidence ?? 0.7, reasoning: refineData.reasoning ?? "", targetDescription: refineData.targetDescription ?? "" };
+          }
+
+          const scaleX = canvasW / smallW;
+          const scaleY = canvasH / smallH;
+          setCorners({
+            topLeft:     [Math.round(finalCorners.topLeft[0] * scaleX),     Math.round(finalCorners.topLeft[1] * scaleY)],
+            topRight:    [Math.round(finalCorners.topRight[0] * scaleX),    Math.round(finalCorners.topRight[1] * scaleY)],
+            bottomRight: [Math.round(finalCorners.bottomRight[0] * scaleX), Math.round(finalCorners.bottomRight[1] * scaleY)],
+            bottomLeft:  [Math.round(finalCorners.bottomLeft[0] * scaleX),  Math.round(finalCorners.bottomLeft[1] * scaleY)],
+          });
+          setAiFeedback(finalFeedback);
+          if (refineData?.raw) setRawResponse(refineData.raw);
+        } catch {
+          const scaleX = canvasW / smallW; const scaleY = canvasH / smallH;
+          setCorners({ topLeft: [Math.round(data.corners.topLeft[0]*scaleX), Math.round(data.corners.topLeft[1]*scaleY)], topRight: [Math.round(data.corners.topRight[0]*scaleX), Math.round(data.corners.topRight[1]*scaleY)], bottomRight: [Math.round(data.corners.bottomRight[0]*scaleX), Math.round(data.corners.bottomRight[1]*scaleY)], bottomLeft: [Math.round(data.corners.bottomLeft[0]*scaleX), Math.round(data.corners.bottomLeft[1]*scaleY)] });
+          setAiFeedback({ found: data.found ?? true, confidence: data.confidence ?? 0.7, reasoning: data.reasoning ?? "", targetDescription: data.targetDescription ?? "" });
+          if (data.raw) setRawResponse(data.raw);
+        }
       } else {
         setAiError("Geen plaatsing ontvangen. Probeer opnieuw.");
       }
@@ -553,20 +584,20 @@ export default function PreviewPage() {
         ctx.stroke();
         ctx.restore();
 
-        const scale = Math.min(512 / compositeCanvas.width, 512 / compositeCanvas.height, 1);
+        const scale = Math.min(1024 / compositeCanvas.width, 1024 / compositeCanvas.height, 1);
         const out = document.createElement("canvas");
         out.width = Math.round(compositeCanvas.width * scale);
         out.height = Math.round(compositeCanvas.height * scale);
         out.getContext("2d")!.drawImage(compositeCanvas, 0, 0, out.width, out.height);
-        compositeB64 = out.toDataURL("image/jpeg", 0.82).split(",")[1];
+        compositeB64 = out.toDataURL("image/jpeg", 0.92).split(",")[1];
       } else if (canvasRef && corners) {
         // Canvas already has composite — use directly
-        const scale = Math.min(512 / canvasRef.width, 512 / canvasRef.height, 1);
+        const scale = Math.min(1024 / canvasRef.width, 1024 / canvasRef.height, 1);
         const out = document.createElement("canvas");
         out.width = Math.round(canvasRef.width * scale);
         out.height = Math.round(canvasRef.height * scale);
         out.getContext("2d")!.drawImage(canvasRef, 0, 0, out.width, out.height);
-        compositeB64 = out.toDataURL("image/jpeg", 0.82).split(",")[1];
+        compositeB64 = out.toDataURL("image/jpeg", 0.92).split(",")[1];
       }
 
       if (compositeB64) {
