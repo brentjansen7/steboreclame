@@ -636,20 +636,20 @@ export default function PreviewPage() {
         ctx.stroke();
         ctx.restore();
 
-        const scale = Math.min(1024 / compositeCanvas.width, 1024 / compositeCanvas.height, 1);
+        const scale = Math.min(768 / compositeCanvas.width, 768 / compositeCanvas.height, 1);
         const out = document.createElement("canvas");
         out.width = Math.round(compositeCanvas.width * scale);
         out.height = Math.round(compositeCanvas.height * scale);
         out.getContext("2d")!.drawImage(compositeCanvas, 0, 0, out.width, out.height);
-        compositeB64 = out.toDataURL("image/jpeg", 0.92).split(",")[1];
+        compositeB64 = out.toDataURL("image/jpeg", 0.85).split(",")[1];
       } else if (canvasRef && corners) {
         // Canvas already has composite — use directly
-        const scale = Math.min(1024 / canvasRef.width, 1024 / canvasRef.height, 1);
+        const scale = Math.min(768 / canvasRef.width, 768 / canvasRef.height, 1);
         const out = document.createElement("canvas");
         out.width = Math.round(canvasRef.width * scale);
         out.height = Math.round(canvasRef.height * scale);
         out.getContext("2d")!.drawImage(canvasRef, 0, 0, out.width, out.height);
-        compositeB64 = out.toDataURL("image/jpeg", 0.92).split(",")[1];
+        compositeB64 = out.toDataURL("image/jpeg", 0.85).split(",")[1];
       }
 
       if (compositeB64) {
