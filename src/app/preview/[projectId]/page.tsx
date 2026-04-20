@@ -733,7 +733,7 @@ export default function PreviewPage() {
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
             <h3 className="font-semibold mb-2 text-sm flex items-center gap-1">
               <span>AI Plaatsing</span>
-              <span className="text-xs font-normal text-blue-600">(Claude claude-sonnet-4-6)</span>
+              <span className="text-xs font-normal text-blue-600">(Gemini)</span>
             </h3>
             <textarea
               value={instruction}
@@ -818,7 +818,7 @@ export default function PreviewPage() {
           <div className="text-sm text-gray-500 space-y-1">
             <p>1. Upload een foto van het pand</p>
             <p>2. Upload het SVG ontwerp</p>
-            <p>3. Geef instructie aan Claude AI</p>
+            <p>3. Geef instructie voor de plaatsing</p>
             <p>4. Of sleep de hoekpunten handmatig</p>
             <p>5. Exporteer als PNG</p>
           </div>
