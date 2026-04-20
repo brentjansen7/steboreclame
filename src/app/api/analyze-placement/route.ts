@@ -1,65 +1,7 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
 import { getRateLimitKey, checkRateLimit } from "@/lib/rateLimit";
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
-
-// Nano Banana API configuration
-const NANO_BANANA_API_KEY = process.env.NANO_BANANA_API_KEY;
-const NANO_BANANA_ENDPOINT = "https://api.nanobananallms.com/v1/messages";
-
 export const maxDuration = 45;
-
-async function callNanoBananaAPI(
-  userContent: Array<{ type: string; source?: any; text?: string; image?: any }>,
-  systemPrompt: string
-) {
-  if (!NANO_BANANA_API_KEY) {
-    throw new Error("NANO_BANANA_API_KEY not configured");
-  }
-
-  // Convert userContent to Nano Banana format
-  const formattedContent = userContent.map((item: any) => {
-    if (item.type === "text") {
-      return { type: "text", text: item.text };
-    } else if (item.type === "image") {
-      return {
-        type: "image",
-        source: item.source,
-      };
-    }
-    return item;
-  });
-
-  const response = await fetch(NANO_BANANA_ENDPOINT, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${NANO_BANANA_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: 800,
-      system: systemPrompt,
-      messages: [
-        {
-          role: "user",
-          content: formattedContent,
-        },
-      ],
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Nano Banana API error: ${response.status} ${errorText}`);
-  }
-
-  const data = await response.json();
-  return data.content[0].text;
-}
 
 const SYSTEM_PROMPT = `Je bent een precisie-assistent voor een vinylreclame-bedrijf. Je bepaalt waar een reclameontwerp op een gevelfoto geplaatst moet worden.
 You are a precision assistant for a vinyl sign company. You determine where a sign design should be placed on a building photo.
@@ -162,6 +104,50 @@ Stap 1: FIND object`);
   return prompt;
 };
 
+async function callGeminiPlacement(
+  photoBase64: string,
+  photoMimeType: string,
+  userPrompt: string,
+  designBase64?: string,
+  designMimeType?: string
+): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY niet geconfigureerd");
+
+  const parts: object[] = [
+    { text: "IMAGE 1 — GEVELFOTO (building photo):" },
+    { inlineData: { mimeType: photoMimeType, data: photoBase64 } },
+  ];
+
+  if (designBase64) {
+    parts.push({ text: "IMAGE 2 — ONTWERP (design, alleen ter referentie):" });
+    parts.push({ inlineData: { mimeType: designMimeType || "image/png", data: designBase64 } });
+  }
+
+  parts.push({ text: userPrompt });
+
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        contents: [{ role: "user", parts }],
+        generationConfig: { temperature: 0.1 },
+      }),
+    }
+  );
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Gemini placement error ${res.status}: ${err.substring(0, 200)}`);
+  }
+
+  const data = await res.json();
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+}
+
 const validImageTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"] as const;
 type ValidImageType = typeof validImageTypes[number];
 
@@ -201,52 +187,12 @@ export async function POST(request: NextRequest) {
         ? designMediaType
         : "image/png";
 
-    // Build content array: photo first, then optional design, then instruction
-    const userContent: Anthropic.MessageParam["content"] = [
-      { type: "text", text: "IMAGE 1 — GEVELFOTO (building photo):" },
-      {
-        type: "image",
-        source: { type: "base64", media_type: mt, data: photoBase64 },
-      },
-    ];
+    const userPrompt = buildUserPrompt(instruction, !!designBase64, previousCorners, isCrop);
 
-    if (designBase64) {
-      userContent.push({ type: "text", text: "IMAGE 2 — ONTWERP (design, alleen ter referentie):" });
-      userContent.push({
-        type: "image",
-        source: { type: "base64", media_type: dmt, data: designBase64 },
-      });
-    }
-
-    userContent.push({
-      type: "text",
-      text: buildUserPrompt(instruction, !!designBase64, previousCorners, isCrop),
-    });
-
-    let responseText = "";
-    let usedProvider = "anthropic";
-
-    // Try Nano Banana first, fall back to Anthropic
-    try {
-      responseText = await callNanoBananaAPI(userContent, SYSTEM_PROMPT);
-      usedProvider = "nano-banana";
-    } catch (nanoBananaError) {
-      console.warn("Nano Banana failed, falling back to Anthropic:", nanoBananaError);
-      try {
-        const message = await anthropic.messages.create({
-          model: "claude-sonnet-4-6",
-          max_tokens: 800,
-          system: SYSTEM_PROMPT,
-          messages: [{ role: "user", content: userContent }],
-        });
-        responseText =
-          message.content[0].type === "text" ? message.content[0].text : "";
-        usedProvider = "anthropic";
-      } catch (anthropicError) {
-        console.error("Both APIs failed:", anthropicError);
-        throw new Error(`Both Nano Banana and Anthropic APIs failed: ${anthropicError}`);
-      }
-    }
+    const responseText = await callGeminiPlacement(
+      photoBase64, mt, userPrompt,
+      designBase64, dmt
+    );
 
     const parsed = parseResponse(responseText, photoWidth, photoHeight);
 
@@ -258,12 +204,11 @@ export async function POST(request: NextRequest) {
       targetDescription: parsed.targetDescription,
       remaining,
       raw: responseText,
-      provider: usedProvider,
+      provider: "gemini-2.5-flash",
     });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : JSON.stringify(error);
-    console.error("Claude API error:", msg);
-    return NextResponse.json({ error: `Claude API fout: ${msg}` }, { status: 500 });
+    return NextResponse.json({ error: `Gemini API fout: ${msg}` }, { status: 500 });
   }
 }
 
@@ -289,20 +234,12 @@ function applyInwardTightening(
   },
   factor: number
 ) {
-  // Calculate center of the box
   const centerX = (corners.topLeft[0] + corners.topRight[0] + corners.bottomRight[0] + corners.bottomLeft[0]) / 4;
   const centerY = (corners.topLeft[1] + corners.topRight[1] + corners.bottomRight[1] + corners.bottomLeft[1]) / 4;
-
-  // Pull each corner towards center by (1-factor) = 1.5%
-  const tighten = (point: [number, number]): [number, number] => {
-    const dx = point[0] - centerX;
-    const dy = point[1] - centerY;
-    return [
-      Math.round(centerX + dx * factor),
-      Math.round(centerY + dy * factor),
-    ];
-  };
-
+  const tighten = (point: [number, number]): [number, number] => [
+    Math.round(centerX + (point[0] - centerX) * factor),
+    Math.round(centerY + (point[1] - centerY) * factor),
+  ];
   return {
     topLeft: tighten(corners.topLeft),
     topRight: tighten(corners.topRight),
@@ -327,10 +264,7 @@ function parseResponse(text: string, photoWidth: number, photoHeight: number): P
     targetDescription: "",
   };
 
-  // Strip markdown code fences
   const clean = text.replace(/```(?:json)?\s*/g, "").replace(/```/g, "").trim();
-
-  // Try strict JSON parse
   const jsonMatch = clean.match(/\{[\s\S]*\}/);
   if (jsonMatch) {
     try {
@@ -342,34 +276,25 @@ function parseResponse(text: string, photoWidth: number, photoHeight: number): P
       };
 
       if (obj.topLeftPct && obj.topRightPct && obj.bottomRightPct && obj.bottomLeftPct) {
-        const tl = obj.topLeftPct;
-        const tr = obj.topRightPct;
-        const br = obj.bottomRightPct;
-        const bl = obj.bottomLeftPct;
-
         const toArr = (v: [number, number] | { x: number; y: number }): [number, number] =>
           Array.isArray(v) ? v : [v.x, v.y];
 
         const corners = {
-          topLeft: pctToCorner(toArr(tl), photoWidth, photoHeight),
-          topRight: pctToCorner(toArr(tr), photoWidth, photoHeight),
-          bottomRight: pctToCorner(toArr(br), photoWidth, photoHeight),
-          bottomLeft: pctToCorner(toArr(bl), photoWidth, photoHeight),
+          topLeft: pctToCorner(toArr(obj.topLeftPct), photoWidth, photoHeight),
+          topRight: pctToCorner(toArr(obj.topRightPct), photoWidth, photoHeight),
+          bottomRight: pctToCorner(toArr(obj.bottomRightPct), photoWidth, photoHeight),
+          bottomLeft: pctToCorner(toArr(obj.bottomLeftPct), photoWidth, photoHeight),
         };
 
-        // Sanity: ensure top < bottom
         if (corners.topLeft[1] > corners.bottomLeft[1]) {
           [corners.topLeft, corners.bottomLeft] = [corners.bottomLeft, corners.topLeft];
           [corners.topRight, corners.bottomRight] = [corners.bottomRight, corners.topRight];
         }
-
-        // Sanity: ensure left < right
         if (corners.topLeft[0] > corners.topRight[0]) {
           [corners.topLeft, corners.topRight] = [corners.topRight, corners.topLeft];
           [corners.bottomLeft, corners.bottomRight] = [corners.bottomRight, corners.bottomLeft];
         }
 
-        // Apply 1.5% inward tightening to compensate for Claude's outward rounding
         const tightened = applyInwardTightening(corners, 0.985);
 
         return {
@@ -380,35 +305,7 @@ function parseResponse(text: string, photoWidth: number, photoHeight: number): P
           targetDescription: obj.targetDescription || obj.target_description || "",
         };
       }
-    } catch {
-      // fall through to legacy parsing
-    }
-  }
-
-  // Legacy fallback: percentage line format "topLeftPct: X,Y"
-  const pctPatterns: [string, keyof typeof defaultCorners][] = [
-    ["topLeftPct", "topLeft"],
-    ["topRightPct", "topRight"],
-    ["bottomRightPct", "bottomRight"],
-    ["bottomLeftPct", "bottomLeft"],
-  ];
-  const corners = { ...defaultCorners };
-  let foundAny = false;
-  for (const [pattern, key] of pctPatterns) {
-    const regex = new RegExp(pattern + "\\s*:\\s*([\\d.]+)%?\\s*,\\s*([\\d.]+)%?");
-    const match = text.match(regex);
-    if (match) {
-      const xPct = parseFloat(match[1]);
-      const yPct = parseFloat(match[2]);
-      const x = Math.round((xPct / 100) * photoWidth);
-      const y = Math.round((yPct / 100) * photoHeight);
-      corners[key] = [Math.max(0, Math.min(photoWidth, x)), Math.max(0, Math.min(photoHeight, y))];
-      foundAny = true;
-    }
-  }
-
-  if (foundAny) {
-    return { corners, found: true, confidence: 0.5, reasoning: "Plaatsing gevonden (legacy formaat)", targetDescription: "" };
+    } catch { /* fall through */ }
   }
 
   return defaultResult;
