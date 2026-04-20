@@ -364,104 +364,23 @@ export default function PreviewPage() {
       if (data.error) {
         setAiError(data.error);
       } else if (data.corners && data.found) {
-        // PASS 2: Refined detection on cropped region
-        try {
-          const crop = await cropImageForRefinement(photoUrl, data.corners, smallW, smallH);
-
-          // Call API again with cropped image
-          const refineResponse = await fetch("/api/analyze-placement", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              photoBase64: crop.base64,
-              mediaType: crop.mediaType,
-              instruction: promptText,
-              photoWidth: crop.w,
-              photoHeight: crop.h,
-              isCrop: true,
-            }),
-          });
-
-          const refineText = await refineResponse.text();
-          let refineData: any;
-          try {
-            refineData = JSON.parse(refineText);
-          } catch {
-            // Fallback to Pass 1 result if Pass 2 fails
-            refineData = null;
-          }
-
-          // Use refined result if available, otherwise fall back to rough result
-          let finalCorners = data.corners;
-          let finalFeedback = {
-            found: data.found ?? true,
-            confidence: data.confidence ?? 0.7,
-            reasoning: data.reasoning ?? "",
-            targetDescription: data.targetDescription ?? "",
-          };
-
-          if (refineData?.corners && refineData?.found) {
-            // Map Pass 2 coordinates (crop space) back to full image coordinates
-            const cropPct = crop.cropPct;
-            const remappedCorners: CornerPoints = {
-              topLeft: [
-                Math.round((cropPct.x1 + (refineData.corners.topLeft[0] / crop.w) * (cropPct.x2 - cropPct.x1)) / 100 * smallW),
-                Math.round((cropPct.y1 + (refineData.corners.topLeft[1] / crop.h) * (cropPct.y2 - cropPct.y1)) / 100 * smallH),
-              ],
-              topRight: [
-                Math.round((cropPct.x1 + (refineData.corners.topRight[0] / crop.w) * (cropPct.x2 - cropPct.x1)) / 100 * smallW),
-                Math.round((cropPct.y1 + (refineData.corners.topRight[1] / crop.h) * (cropPct.y2 - cropPct.y1)) / 100 * smallH),
-              ],
-              bottomRight: [
-                Math.round((cropPct.x1 + (refineData.corners.bottomRight[0] / crop.w) * (cropPct.x2 - cropPct.x1)) / 100 * smallW),
-                Math.round((cropPct.y1 + (refineData.corners.bottomRight[1] / crop.h) * (cropPct.y2 - cropPct.y1)) / 100 * smallH),
-              ],
-              bottomLeft: [
-                Math.round((cropPct.x1 + (refineData.corners.bottomLeft[0] / crop.w) * (cropPct.x2 - cropPct.x1)) / 100 * smallW),
-                Math.round((cropPct.y1 + (refineData.corners.bottomLeft[1] / crop.h) * (cropPct.y2 - cropPct.y1)) / 100 * smallH),
-              ],
-            };
-            finalCorners = remappedCorners;
-            finalFeedback = {
-              found: refineData.found ?? true,
-              confidence: refineData.confidence ?? 0.7,
-              reasoning: refineData.reasoning ?? "",
-              targetDescription: refineData.targetDescription ?? "",
-            };
-          }
-
-          // Scale corners from small image to canvas coordinates
-          const scaleX = canvasW / smallW;
-          const scaleY = canvasH / smallH;
-          const scaled: CornerPoints = {
-            topLeft: [Math.round(finalCorners.topLeft[0] * scaleX), Math.round(finalCorners.topLeft[1] * scaleY)],
-            topRight: [Math.round(finalCorners.topRight[0] * scaleX), Math.round(finalCorners.topRight[1] * scaleY)],
-            bottomRight: [Math.round(finalCorners.bottomRight[0] * scaleX), Math.round(finalCorners.bottomRight[1] * scaleY)],
-            bottomLeft: [Math.round(finalCorners.bottomLeft[0] * scaleX), Math.round(finalCorners.bottomLeft[1] * scaleY)],
-          };
-
-          setCorners(scaled);
-          setAiFeedback(finalFeedback);
-          if (refineData?.raw) setRawResponse(refineData.raw);
-        } catch (cropError) {
-          // If cropping fails, fall back to Pass 1 result
-          const scaleX = canvasW / smallW;
-          const scaleY = canvasH / smallH;
-          const scaled: CornerPoints = {
-            topLeft: [Math.round(data.corners.topLeft[0] * scaleX), Math.round(data.corners.topLeft[1] * scaleY)],
-            topRight: [Math.round(data.corners.topRight[0] * scaleX), Math.round(data.corners.topRight[1] * scaleY)],
-            bottomRight: [Math.round(data.corners.bottomRight[0] * scaleX), Math.round(data.corners.bottomRight[1] * scaleY)],
-            bottomLeft: [Math.round(data.corners.bottomLeft[0] * scaleX), Math.round(data.corners.bottomLeft[1] * scaleY)],
-          };
-          setCorners(scaled);
-          setAiFeedback({
-            found: data.found ?? true,
-            confidence: data.confidence ?? 0.7,
-            reasoning: data.reasoning ?? "",
-            targetDescription: data.targetDescription ?? "",
-          });
-          if (data.raw) setRawResponse(data.raw);
-        }
+        // Scale corners from small image to canvas coordinates
+        const scaleX = canvasW / smallW;
+        const scaleY = canvasH / smallH;
+        const scaled: CornerPoints = {
+          topLeft: [Math.round(data.corners.topLeft[0] * scaleX), Math.round(data.corners.topLeft[1] * scaleY)],
+          topRight: [Math.round(data.corners.topRight[0] * scaleX), Math.round(data.corners.topRight[1] * scaleY)],
+          bottomRight: [Math.round(data.corners.bottomRight[0] * scaleX), Math.round(data.corners.bottomRight[1] * scaleY)],
+          bottomLeft: [Math.round(data.corners.bottomLeft[0] * scaleX), Math.round(data.corners.bottomLeft[1] * scaleY)],
+        };
+        setCorners(scaled);
+        setAiFeedback({
+          found: data.found ?? true,
+          confidence: data.confidence ?? 0.7,
+          reasoning: data.reasoning ?? "",
+          targetDescription: data.targetDescription ?? "",
+        });
+        if (data.raw) setRawResponse(data.raw);
       } else {
         setAiError("Geen plaatsing ontvangen. Probeer opnieuw.");
       }
@@ -634,35 +553,44 @@ export default function PreviewPage() {
         ctx.stroke();
         ctx.restore();
 
-        const scale = Math.min(768 / compositeCanvas.width, 768 / compositeCanvas.height, 1);
+        const scale = Math.min(512 / compositeCanvas.width, 512 / compositeCanvas.height, 1);
         const out = document.createElement("canvas");
         out.width = Math.round(compositeCanvas.width * scale);
         out.height = Math.round(compositeCanvas.height * scale);
         out.getContext("2d")!.drawImage(compositeCanvas, 0, 0, out.width, out.height);
-        compositeB64 = out.toDataURL("image/jpeg", 0.85).split(",")[1];
+        compositeB64 = out.toDataURL("image/jpeg", 0.82).split(",")[1];
       } else if (canvasRef && corners) {
         // Canvas already has composite — use directly
-        const scale = Math.min(768 / canvasRef.width, 768 / canvasRef.height, 1);
+        const scale = Math.min(512 / canvasRef.width, 512 / canvasRef.height, 1);
         const out = document.createElement("canvas");
         out.width = Math.round(canvasRef.width * scale);
         out.height = Math.round(canvasRef.height * scale);
         out.getContext("2d")!.drawImage(canvasRef, 0, 0, out.width, out.height);
-        compositeB64 = out.toDataURL("image/jpeg", 0.85).split(",")[1];
+        compositeB64 = out.toDataURL("image/jpeg", 0.82).split(",")[1];
       }
 
       if (compositeB64) {
-        // Send composite to Gemini for photorealistic enhancement
-        const res = await fetch("/api/ai-enhance", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            compositeBase64: compositeB64,
-            photoMediaType: "image/jpeg",
-          }),
-        });
-        const data = await res.json();
-        if (data.error) setEnhanceError(data.error);
-        else setEnhancedImageUrl(`data:${data.mediaType};base64,${data.imageBase64}`);
+        // Try Gemini; fall back to composite directly if it times out
+        try {
+          const res = await fetch("/api/ai-enhance", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              compositeBase64: compositeB64,
+              photoMediaType: "image/jpeg",
+            }),
+          });
+          const data = await res.json();
+          if (data.error) {
+            // Fallback: show composite directly
+            setEnhancedImageUrl(`data:image/jpeg;base64,${compositeB64}`);
+            setEnhanceError(`Gemini niet beschikbaar (${data.error.substring(0,60)}). Composite getoond.`);
+          } else {
+            setEnhancedImageUrl(`data:${data.mediaType};base64,${data.imageBase64}`);
+          }
+        } catch {
+          setEnhancedImageUrl(`data:image/jpeg;base64,${compositeB64}`);
+        }
       } else {
         setEnhanceError("Geen ontwerp of hoekpunten gevonden om te plaatsen.");
       }
