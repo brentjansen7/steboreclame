@@ -149,23 +149,35 @@ export default function PreviewPage() {
     setDesignSvg(text);
   }
 
-  // Draw a yellow percentage grid on the canvas so Claude can see exact coordinate references
+  // Yellow 5%/10% grid with labels every 10% — lets Gemini read precise coords
   function drawCoordGrid(ctx: CanvasRenderingContext2D, w: number, h: number): void {
     const fontSize = Math.max(10, Math.round(Math.min(w, h) / 22));
     ctx.save();
-    ctx.setLineDash([4, 4]);
     ctx.lineWidth = 1;
+
+    // Minor gridlines every 5% (thin, faint)
+    ctx.setLineDash([2, 3]);
+    ctx.strokeStyle = "rgba(255,220,0,0.25)";
+    for (let i = 0; i <= 20; i++) {
+      if (i % 2 === 0) continue;
+      const x = Math.round((w * i) / 20);
+      const y = Math.round((h * i) / 20);
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+    }
+
+    // Major gridlines every 10% (with labels)
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = "rgba(255,220,0,0.6)";
     for (let i = 0; i <= 10; i++) {
-      const x = Math.round(w * i / 10);
-      const y = Math.round(h * i / 10);
-      ctx.strokeStyle = "rgba(255,220,0,0.55)";
+      const x = Math.round((w * i) / 10);
+      const y = Math.round((h * i) / 10);
       ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
       if (i > 0 && i < 10) {
         const label = `${i * 10}`;
         ctx.setLineDash([]);
         ctx.font = `bold ${fontSize}px monospace`;
-        // Shadow for readability
         ctx.fillStyle = "rgba(0,0,0,0.75)";
         ctx.fillText(label, x - fontSize * label.length * 0.28 + 1, fontSize + 3);
         ctx.fillText(label, 3, y + fontSize / 2 + 1);
