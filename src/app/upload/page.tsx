@@ -23,6 +23,8 @@ function UploadContent() {
   const [rollWidth, setRollWidth] = useState<number>(630);
   const [pricePerMeter, setPricePerMeter] = useState<string>("");
   const [realWidthCm, setRealWidthCm] = useState<string>("");
+  const [realHeightCm, setRealHeightCm] = useState<string>("");
+  const [heightLocked, setHeightLocked] = useState<boolean>(true); // auto-fill from aspect until user edits
   const [aspect, setAspect] = useState<number>(1); // height / width
   const [rasterColors, setRasterColors] = useState<RasterColors | null>(null);
   const [svgViewBox, setSvgViewBox] = useState<{ width: number; height: number } | null>(null);
@@ -31,6 +33,7 @@ function UploadContent() {
   async function handleDesignLoaded(content: string, name: string, file: File) {
     setFileName(name);
     setColorGroups([]);
+    setHeightLocked(true); // re-enable auto-fill on new design
     const isSvg = file.type === "image/svg+xml" || /\.svg$/i.test(name);
 
     if (isSvg) {
@@ -57,14 +60,25 @@ function UploadContent() {
     }
   }
 
+  // Auto-fill height from width × aspect while user hasn't manually edited height
+  useEffect(() => {
+    if (!heightLocked) return;
+    const w = parseFloat(realWidthCm);
+    if (w > 0) {
+      setRealHeightCm((w * aspect).toFixed(1));
+    } else {
+      setRealHeightCm("");
+    }
+  }, [realWidthCm, aspect, heightLocked]);
+
   // Recalculate whenever inputs change
   useEffect(() => {
     const widthMm = parseFloat(realWidthCm) * 10;
-    if (!widthMm || widthMm <= 0) {
+    const heightMm = parseFloat(realHeightCm) * 10;
+    if (!widthMm || !heightMm || widthMm <= 0 || heightMm <= 0) {
       setColorGroups([]);
       return;
     }
-    const heightMm = widthMm * aspect;
     const price = pricePerMeter ? parseFloat(pricePerMeter) : null;
 
     if (svgContent && svgViewBox) {
@@ -75,7 +89,7 @@ function UploadContent() {
       const results = calculateVinylFromFractions(rasterColors, widthMm, heightMm, rollWidth, price);
       setColorGroups(results);
     }
-  }, [realWidthCm, pricePerMeter, rollWidth, svgContent, svgViewBox, rasterColors, aspect]);
+  }, [realWidthCm, realHeightCm, pricePerMeter, rollWidth, svgContent, svgViewBox, rasterColors]);
 
   async function saveDesign() {
     if ((!svgContent && !designImageUrl) || !projectId) return;
@@ -92,7 +106,7 @@ function UploadContent() {
     }
 
     const widthMm = parseFloat(realWidthCm) * 10;
-    const heightMm = widthMm * aspect;
+    const heightMm = parseFloat(realHeightCm) * 10;
 
     await supabase.from("designs").insert({
       project_id: projectId,
@@ -151,11 +165,38 @@ function UploadContent() {
                 placeholder="bijv. 200"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-              {widthValid && (
-                <p className="text-xs text-gray-500 mt-1">
-                  Hoogte: {(parseFloat(realWidthCm) * aspect).toFixed(0)} cm (bewaard van ontwerp)
-                </p>
-              )}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Werkelijke hoogte (cm) *
+                {heightLocked && (
+                  <span className="ml-2 text-xs font-normal text-gray-400">auto uit verhouding</span>
+                )}
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  step="1"
+                  min="0"
+                  value={realHeightCm}
+                  onChange={(e) => {
+                    setHeightLocked(false);
+                    setRealHeightCm(e.target.value);
+                  }}
+                  placeholder="bijv. 80"
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                {!heightLocked && (
+                  <button
+                    type="button"
+                    onClick={() => setHeightLocked(true)}
+                    className="px-3 py-2 text-xs bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                    title="Herstel verhouding van ontwerp"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -170,7 +211,7 @@ function UploadContent() {
                 <option value={1260}>126 cm (breed)</option>
               </select>
             </div>
-            <div className="col-span-2">
+            <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Inkoopprijs per meter folie (€)
               </label>
@@ -187,7 +228,7 @@ function UploadContent() {
           </div>
           {!widthValid && (
             <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2 mt-3">
-              Vul eerst de werkelijke breedte in om folie per kleur te berekenen.
+              Vul eerst breedte en hoogte in om folie per kleur te berekenen.
             </p>
           )}
         </div>
