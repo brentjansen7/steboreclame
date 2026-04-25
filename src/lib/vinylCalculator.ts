@@ -1,6 +1,41 @@
 import type { SvgElement, ColorGroup } from "@/types";
 import { svgUnitsToMm } from "./svgAnalyzer";
 
+// For raster designs: known total design size + per-color fraction.
+// Computes vinyl length on roll per color using oppervlakte / rolBreedte.
+export function calculateVinylFromFractions(
+  colors: { hex: string; fraction: number }[],
+  designWidthMm: number,
+  designHeightMm: number,
+  rollWidthMm: number,
+  pricePerMeter: number | null
+): ColorGroup[] {
+  if (designWidthMm <= 0 || designHeightMm <= 0) return [];
+
+  const totalDesignArea = designWidthMm * designHeightMm; // mm²
+
+  const results: ColorGroup[] = colors.map((c) => {
+    const colorArea = totalDesignArea * c.fraction; // mm²
+    // Approximate roll length: area divided by usable roll width.
+    // If color area exceeds rollWidth^2 we still divide by rollWidth (multi-strip).
+    const rawLength = colorArea / rollWidthMm; // mm on roll
+    const requiredLength = Math.ceil(rawLength * 1.1); // 10% waste margin
+    const meters = requiredLength / 1000;
+    const cost = pricePerMeter ? meters * pricePerMeter : null;
+
+    return {
+      color: c.hex,
+      elements: [],
+      totalArea: colorArea,
+      requiredLength,
+      meters: Math.round(meters * 100) / 100,
+      cost: cost ? Math.round(cost * 100) / 100 : null,
+    };
+  });
+
+  return results.sort((a, b) => b.meters - a.meters);
+}
+
 export function calculateVinyl(
   colorGroups: Map<string, SvgElement[]>,
   rollWidthMm: number,

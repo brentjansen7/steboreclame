@@ -1,13 +1,15 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import FileUpload from "@/components/FileUpload";
 import ColorList from "@/components/ColorList";
-import { analyzeSvg, analyzeRaster, svgUnitsToMm } from "@/lib/svgAnalyzer";
-import { calculateVinyl, formatTotalCost } from "@/lib/vinylCalculator";
+import { analyzeSvg, analyzeRaster } from "@/lib/svgAnalyzer";
+import { calculateVinyl, calculateVinylFromFractions, formatTotalCost } from "@/lib/vinylCalculator";
 import { supabase } from "@/lib/supabase";
 import type { ColorGroup } from "@/types";
+
+type RasterColors = { hex: string; fraction: number }[];
 
 function UploadContent() {
   const searchParams = useSearchParams();
@@ -20,10 +22,15 @@ function UploadContent() {
   const [colorGroups, setColorGroups] = useState<ColorGroup[]>([]);
   const [rollWidth, setRollWidth] = useState<number>(630);
   const [pricePerMeter, setPricePerMeter] = useState<string>("");
+  const [realWidthCm, setRealWidthCm] = useState<string>("");
+  const [aspect, setAspect] = useState<number>(1); // height / width
+  const [rasterColors, setRasterColors] = useState<RasterColors | null>(null);
+  const [svgViewBox, setSvgViewBox] = useState<{ width: number; height: number } | null>(null);
   const [saving, setSaving] = useState(false);
 
   async function handleDesignLoaded(content: string, name: string, file: File) {
     setFileName(name);
+    setColorGroups([]);
     const isSvg = file.type === "image/svg+xml" || /\.svg$/i.test(name);
 
     if (isSvg) {
@@ -32,31 +39,43 @@ function UploadContent() {
         const svgText = e.target?.result as string;
         setSvgContent(svgText);
         setDesignImageUrl(null);
+        setRasterColors(null);
 
-        const { colorGroups: groups, viewBox } = analyzeSvg(svgText);
-        const price = pricePerMeter ? parseFloat(pricePerMeter) : null;
-        const results = calculateVinyl(groups, rollWidth, price, viewBox);
-        setColorGroups(results);
+        const { viewBox } = analyzeSvg(svgText);
+        setSvgViewBox(viewBox);
+        setAspect(viewBox.height / viewBox.width);
       };
       reader.readAsText(file);
     } else {
       setSvgContent(null);
+      setSvgViewBox(null);
       setDesignImageUrl(content);
 
-      const { colorGroups: groups, viewBox } = await analyzeRaster(content);
-      const price = pricePerMeter ? parseFloat(pricePerMeter) : null;
-      const results = calculateVinyl(groups, rollWidth, price, viewBox);
-      setColorGroups(results);
+      const { colors, viewBox } = await analyzeRaster(content);
+      setRasterColors(colors);
+      setAspect(viewBox.height / viewBox.width);
     }
   }
 
-  function recalculate() {
-    if (!svgContent) return;
-    const { colorGroups: groups, viewBox } = analyzeSvg(svgContent);
+  // Recalculate whenever inputs change
+  useEffect(() => {
+    const widthMm = parseFloat(realWidthCm) * 10;
+    if (!widthMm || widthMm <= 0) {
+      setColorGroups([]);
+      return;
+    }
+    const heightMm = widthMm * aspect;
     const price = pricePerMeter ? parseFloat(pricePerMeter) : null;
-    const results = calculateVinyl(groups, rollWidth, price, viewBox);
-    setColorGroups(results);
-  }
+
+    if (svgContent && svgViewBox) {
+      const { colorGroups: groups } = analyzeSvg(svgContent);
+      const results = calculateVinyl(groups, rollWidth, price, svgViewBox, widthMm);
+      setColorGroups(results);
+    } else if (rasterColors) {
+      const results = calculateVinylFromFractions(rasterColors, widthMm, heightMm, rollWidth, price);
+      setColorGroups(results);
+    }
+  }, [realWidthCm, pricePerMeter, rollWidth, svgContent, svgViewBox, rasterColors, aspect]);
 
   async function saveDesign() {
     if ((!svgContent && !designImageUrl) || !projectId) return;
@@ -72,29 +91,16 @@ function UploadContent() {
       await supabase.storage.from("designs").upload(filePath, blob);
     }
 
-    let viewBox = { width: 1000, height: 1000 };
-    if (svgContent) {
-      const analyzed = analyzeSvg(svgContent);
-      viewBox = analyzed.viewBox;
-    } else if (designImageUrl) {
-      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-        const i = new Image();
-        i.onload = () => resolve(i);
-        i.onerror = reject;
-        i.src = designImageUrl;
-      });
-      viewBox = { width: img.naturalWidth, height: img.naturalHeight };
-    }
-    const widthMm = svgUnitsToMm(viewBox.width, viewBox.width);
-    const heightMm = svgUnitsToMm(viewBox.height, viewBox.width);
+    const widthMm = parseFloat(realWidthCm) * 10;
+    const heightMm = widthMm * aspect;
 
     await supabase.from("designs").insert({
       project_id: projectId,
       file_path: filePath,
       file_name: fileName,
       colors: colorGroups.map((g) => g.color),
-      width_mm: widthMm,
-      height_mm: heightMm,
+      width_mm: widthMm || null,
+      height_mm: heightMm || null,
     });
 
     if (pricePerMeter) {
@@ -112,6 +118,8 @@ function UploadContent() {
   }
 
   const totalCost = formatTotalCost(colorGroups);
+  const designReady = !!(svgContent || designImageUrl);
+  const widthValid = parseFloat(realWidthCm) > 0;
 
   return (
     <div className="max-w-4xl">
@@ -126,27 +134,43 @@ function UploadContent() {
         />
       </div>
 
-      {svgContent && (
+      {designReady && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
-          <h3 className="font-semibold mb-4">Instellingen</h3>
+          <h3 className="font-semibold mb-4">Afmetingen op de gevel</h3>
           <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Werkelijke breedte (cm) *
+              </label>
+              <input
+                type="number"
+                step="1"
+                min="0"
+                value={realWidthCm}
+                onChange={(e) => setRealWidthCm(e.target.value)}
+                placeholder="bijv. 200"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              {widthValid && (
+                <p className="text-xs text-gray-500 mt-1">
+                  Hoogte: {(parseFloat(realWidthCm) * aspect).toFixed(0)} cm (bewaard van ontwerp)
+                </p>
+              )}
+            </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Folierol breedte
               </label>
               <select
                 value={rollWidth}
-                onChange={(e) => {
-                  setRollWidth(parseInt(e.target.value));
-                  setTimeout(recalculate, 0);
-                }}
+                onChange={(e) => setRollWidth(parseInt(e.target.value))}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value={630}>63 cm (standaard)</option>
                 <option value={1260}>126 cm (breed)</option>
               </select>
             </div>
-            <div>
+            <div className="col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Inkoopprijs per meter folie (€)
               </label>
@@ -155,15 +179,17 @@ function UploadContent() {
                 step="0.01"
                 min="0"
                 value={pricePerMeter}
-                onChange={(e) => {
-                  setPricePerMeter(e.target.value);
-                  setTimeout(recalculate, 0);
-                }}
+                onChange={(e) => setPricePerMeter(e.target.value)}
                 placeholder="bijv. 4.50"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
           </div>
+          {!widthValid && (
+            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2 mt-3">
+              Vul eerst de werkelijke breedte in om folie per kleur te berekenen.
+            </p>
+          )}
         </div>
       )}
 
@@ -178,9 +204,7 @@ function UploadContent() {
               style={{ maxHeight: 400, overflow: "auto" }}
             >
               {svgContent ? (
-                <div
-                  dangerouslySetInnerHTML={{ __html: svgContent }}
-                />
+                <div dangerouslySetInnerHTML={{ __html: svgContent }} />
               ) : designImageUrl ? (
                 <img
                   src={designImageUrl}

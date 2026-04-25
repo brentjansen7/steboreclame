@@ -251,12 +251,13 @@ ${paths}
 </svg>`;
 }
 
-// Analyze raster image (PNG/JPEG) and extract dominant colors via k-means clustering
+// Analyze raster image (PNG/JPEG) and extract dominant colors via k-means clustering.
+// Returns each color with the fraction (0..1) of opaque pixels assigned to it.
 export async function analyzeRaster(
   imageUrl: string,
-  numColors: number = 10
+  numColors: number = 8
 ): Promise<{
-  colorGroups: Map<string, SvgElement[]>;
+  colors: { hex: string; fraction: number }[];
   viewBox: { width: number; height: number };
 }> {
   return new Promise((resolve, reject) => {
@@ -281,30 +282,28 @@ export async function analyzeRaster(
       const samples: [number, number, number][] = [];
       for (let i = 0; i < pixels.length; i += step * 4) {
         const r = pixels[i], g = pixels[i + 1], b = pixels[i + 2], a = pixels[i + 3];
-        // Skip transparent/near-white pixels
+        // Skip transparent/near-white pixels (background)
         if (a < 128 || (r > 240 && g > 240 && b > 240)) continue;
         samples.push([r, g, b]);
       }
 
       if (samples.length === 0) {
-        resolve({ colorGroups: new Map(), viewBox: { width: canvas.width, height: canvas.height } });
+        resolve({ colors: [], viewBox: { width: canvas.width, height: canvas.height } });
         return;
       }
 
-      // K-means clustering
+      // K-means clustering with centroids returned alongside cluster sizes
       const k = Math.min(numColors, samples.length);
-      const clusters = kMeansClustering(samples, k);
+      const { centroids, clusterSizes } = kMeansClustering(samples, k);
 
-      // Convert to colorGroups format (empty elements for raster — we don't have vector paths)
-      const colorGroups = new Map<string, SvgElement[]>();
-      for (const cluster of clusters) {
-        if (cluster.length === 0) continue;
-        const hex = rgbToHex(cluster[0]);
-        colorGroups.set(hex, []); // Raster has no elements; placeholder for compatibility
-      }
+      const totalAssigned = clusterSizes.reduce((s, n) => s + n, 0) || 1;
+      const colors = centroids
+        .map((c, i) => ({ hex: rgbToHex(c), fraction: clusterSizes[i] / totalAssigned }))
+        .filter((c) => c.fraction > 0.005) // drop noise clusters < 0.5%
+        .sort((a, b) => b.fraction - a.fraction);
 
       resolve({
-        colorGroups,
+        colors,
         viewBox: { width: canvas.width, height: canvas.height },
       });
     };
@@ -317,15 +316,16 @@ function kMeansClustering(
   samples: [number, number, number][],
   k: number,
   maxIter: number = 10
-): [number, number, number][][] {
+): { centroids: [number, number, number][]; clusterSizes: number[] } {
   // Initialize centroids by picking random samples
   const centroids: [number, number, number][] = [];
   for (let i = 0; i < k; i++) {
     centroids.push(samples[Math.floor(Math.random() * samples.length)]);
   }
 
+  let lastSizes: number[] = new Array(k).fill(0);
+
   for (let iter = 0; iter < maxIter; iter++) {
-    // Assign samples to nearest centroid
     const clusters: [number, number, number][][] = Array.from({ length: k }, () => []);
     for (const sample of samples) {
       let minDist = Infinity;
@@ -340,7 +340,6 @@ function kMeansClustering(
       clusters[closestCluster].push(sample);
     }
 
-    // Update centroids
     let changed = false;
     for (let i = 0; i < k; i++) {
       if (clusters[i].length === 0) continue;
@@ -354,26 +353,11 @@ function kMeansClustering(
         changed = true;
       }
     }
+    lastSizes = clusters.map((c) => c.length);
     if (!changed) break;
   }
 
-  // Final assignment
-  const clusters: [number, number, number][][] = Array.from({ length: k }, () => []);
-  for (const sample of samples) {
-    let minDist = Infinity;
-    let closestCluster = 0;
-    for (let i = 0; i < centroids.length; i++) {
-      const dist = colorDistance(sample, centroids[i]);
-      if (dist < minDist) {
-        minDist = dist;
-        closestCluster = i;
-      }
-    }
-    clusters[closestCluster].push(sample);
-  }
-
-  // Return clusters (each cluster contains samples of that color)
-  return clusters;
+  return { centroids, clusterSizes: lastSizes };
 }
 
 function colorDistance(a: [number, number, number], b: [number, number, number]): number {
