@@ -250,3 +250,142 @@ export function filterSvgByColor(
 ${paths}
 </svg>`;
 }
+
+// Analyze raster image (PNG/JPEG) and extract dominant colors via k-means clustering
+export async function analyzeRaster(
+  imageUrl: string,
+  numColors: number = 10
+): Promise<{
+  colorGroups: Map<string, SvgElement[]>;
+  viewBox: { width: number; height: number };
+}> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        reject(new Error("Could not get canvas context"));
+        return;
+      }
+
+      ctx.drawImage(img, 0, 0);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const pixels = imageData.data;
+
+      // Sample pixels (every Nth pixel to avoid processing all)
+      const step = Math.max(1, Math.floor(pixels.length / (10000 * 4)));
+      const samples: [number, number, number][] = [];
+      for (let i = 0; i < pixels.length; i += step * 4) {
+        const r = pixels[i], g = pixels[i + 1], b = pixels[i + 2], a = pixels[i + 3];
+        // Skip transparent/near-white pixels
+        if (a < 128 || (r > 240 && g > 240 && b > 240)) continue;
+        samples.push([r, g, b]);
+      }
+
+      if (samples.length === 0) {
+        resolve({ colorGroups: new Map(), viewBox: { width: canvas.width, height: canvas.height } });
+        return;
+      }
+
+      // K-means clustering
+      const k = Math.min(numColors, samples.length);
+      const clusters = kMeansClustering(samples, k);
+
+      // Convert to colorGroups format (empty elements for raster — we don't have vector paths)
+      const colorGroups = new Map<string, SvgElement[]>();
+      for (const cluster of clusters) {
+        if (cluster.length === 0) continue;
+        const hex = rgbToHex(cluster[0]);
+        colorGroups.set(hex, []); // Raster has no elements; placeholder for compatibility
+      }
+
+      resolve({
+        colorGroups,
+        viewBox: { width: canvas.width, height: canvas.height },
+      });
+    };
+    img.onerror = () => reject(new Error("Failed to load image"));
+    img.src = imageUrl;
+  });
+}
+
+function kMeansClustering(
+  samples: [number, number, number][],
+  k: number,
+  maxIter: number = 10
+): [number, number, number][][] {
+  // Initialize centroids by picking random samples
+  const centroids: [number, number, number][] = [];
+  for (let i = 0; i < k; i++) {
+    centroids.push(samples[Math.floor(Math.random() * samples.length)]);
+  }
+
+  for (let iter = 0; iter < maxIter; iter++) {
+    // Assign samples to nearest centroid
+    const clusters: [number, number, number][][] = Array.from({ length: k }, () => []);
+    for (const sample of samples) {
+      let minDist = Infinity;
+      let closestCluster = 0;
+      for (let i = 0; i < centroids.length; i++) {
+        const dist = colorDistance(sample, centroids[i]);
+        if (dist < minDist) {
+          minDist = dist;
+          closestCluster = i;
+        }
+      }
+      clusters[closestCluster].push(sample);
+    }
+
+    // Update centroids
+    let changed = false;
+    for (let i = 0; i < k; i++) {
+      if (clusters[i].length === 0) continue;
+      const newCentroid: [number, number, number] = [
+        Math.round(clusters[i].reduce((sum, s) => sum + s[0], 0) / clusters[i].length),
+        Math.round(clusters[i].reduce((sum, s) => sum + s[1], 0) / clusters[i].length),
+        Math.round(clusters[i].reduce((sum, s) => sum + s[2], 0) / clusters[i].length),
+      ];
+      if (colorDistance(newCentroid, centroids[i]) > 0.1) {
+        centroids[i] = newCentroid;
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+
+  // Final assignment
+  const clusters: [number, number, number][][] = Array.from({ length: k }, () => []);
+  for (const sample of samples) {
+    let minDist = Infinity;
+    let closestCluster = 0;
+    for (let i = 0; i < centroids.length; i++) {
+      const dist = colorDistance(sample, centroids[i]);
+      if (dist < minDist) {
+        minDist = dist;
+        closestCluster = i;
+      }
+    }
+    clusters[closestCluster].push(sample);
+  }
+
+  // Return clusters (each cluster contains samples of that color)
+  return clusters;
+}
+
+function colorDistance(a: [number, number, number], b: [number, number, number]): number {
+  const dr = a[0] - b[0];
+  const dg = a[1] - b[1];
+  const db = a[2] - b[2];
+  return Math.sqrt(dr * dr + dg * dg + db * db);
+}
+
+function rgbToHex(rgb: [number, number, number]): string {
+  const r = Math.round(rgb[0]).toString(16).padStart(2, "0");
+  const g = Math.round(rgb[1]).toString(16).padStart(2, "0");
+  const b = Math.round(rgb[2]).toString(16).padStart(2, "0");
+  return `#${r}${g}${b}`.toUpperCase();
+}

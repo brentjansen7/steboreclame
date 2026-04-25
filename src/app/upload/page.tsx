@@ -4,7 +4,7 @@ import { Suspense, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import FileUpload from "@/components/FileUpload";
 import ColorList from "@/components/ColorList";
-import { analyzeSvg, svgUnitsToMm } from "@/lib/svgAnalyzer";
+import { analyzeSvg, analyzeRaster, svgUnitsToMm } from "@/lib/svgAnalyzer";
 import { calculateVinyl, formatTotalCost } from "@/lib/vinylCalculator";
 import { supabase } from "@/lib/supabase";
 import type { ColorGroup } from "@/types";
@@ -15,21 +15,39 @@ function UploadContent() {
   const projectId = searchParams.get("projectId");
 
   const [svgContent, setSvgContent] = useState<string | null>(null);
+  const [designImageUrl, setDesignImageUrl] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [colorGroups, setColorGroups] = useState<ColorGroup[]>([]);
   const [rollWidth, setRollWidth] = useState<number>(630);
   const [pricePerMeter, setPricePerMeter] = useState<string>("");
   const [saving, setSaving] = useState(false);
 
-  function handleSvgLoaded(content: string, name: string) {
-    setSvgContent(content);
+  async function handleDesignLoaded(content: string, name: string, file: File) {
     setFileName(name);
+    const isSvg = file.type === "image/svg+xml" || /\.svg$/i.test(name);
 
-    const { colorGroups: groups, viewBox } = analyzeSvg(content);
+    if (isSvg) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const svgText = e.target?.result as string;
+        setSvgContent(svgText);
+        setDesignImageUrl(null);
 
-    const price = pricePerMeter ? parseFloat(pricePerMeter) : null;
-    const results = calculateVinyl(groups, rollWidth, price, viewBox);
-    setColorGroups(results);
+        const { colorGroups: groups, viewBox } = analyzeSvg(svgText);
+        const price = pricePerMeter ? parseFloat(pricePerMeter) : null;
+        const results = calculateVinyl(groups, rollWidth, price, viewBox);
+        setColorGroups(results);
+      };
+      reader.readAsText(file);
+    } else {
+      setSvgContent(null);
+      setDesignImageUrl(content);
+
+      const { colorGroups: groups, viewBox } = await analyzeRaster(content);
+      const price = pricePerMeter ? parseFloat(pricePerMeter) : null;
+      const results = calculateVinyl(groups, rollWidth, price, viewBox);
+      setColorGroups(results);
+    }
   }
 
   function recalculate() {
@@ -41,15 +59,32 @@ function UploadContent() {
   }
 
   async function saveDesign() {
-    if (!svgContent || !projectId) return;
+    if ((!svgContent && !designImageUrl) || !projectId) return;
     setSaving(true);
 
     const filePath = `${projectId}/${Date.now()}-${fileName}`;
-    await supabase.storage
-      .from("designs")
-      .upload(filePath, new Blob([svgContent], { type: "image/svg+xml" }));
+    if (svgContent) {
+      await supabase.storage
+        .from("designs")
+        .upload(filePath, new Blob([svgContent], { type: "image/svg+xml" }));
+    } else if (designImageUrl) {
+      const blob = await fetch(designImageUrl).then((r) => r.blob());
+      await supabase.storage.from("designs").upload(filePath, blob);
+    }
 
-    const { viewBox } = analyzeSvg(svgContent);
+    let viewBox = { width: 1000, height: 1000 };
+    if (svgContent) {
+      const analyzed = analyzeSvg(svgContent);
+      viewBox = analyzed.viewBox;
+    } else if (designImageUrl) {
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const i = new Image();
+        i.onload = () => resolve(i);
+        i.onerror = reject;
+        i.src = designImageUrl;
+      });
+      viewBox = { width: img.naturalWidth, height: img.naturalHeight };
+    }
     const widthMm = svgUnitsToMm(viewBox.width, viewBox.width);
     const heightMm = svgUnitsToMm(viewBox.height, viewBox.width);
 
@@ -84,9 +119,10 @@ function UploadContent() {
 
       <div className="mb-6">
         <FileUpload
-          accept=".svg"
-          label="Upload SVG ontwerp"
-          onFileLoaded={handleSvgLoaded}
+          accept=".svg,image/svg+xml,image/png,image/jpeg"
+          label="Upload ontwerp (SVG, PNG of JPEG)"
+          onFileLoaded={handleDesignLoaded}
+          readAsText={false}
         />
       </div>
 
@@ -139,9 +175,20 @@ function UploadContent() {
             <h3 className="font-semibold mb-3">Ontwerp preview</h3>
             <div
               className="bg-gray-100 rounded-lg p-4 flex justify-center"
-              dangerouslySetInnerHTML={{ __html: svgContent || "" }}
               style={{ maxHeight: 400, overflow: "auto" }}
-            />
+            >
+              {svgContent ? (
+                <div
+                  dangerouslySetInnerHTML={{ __html: svgContent }}
+                />
+              ) : designImageUrl ? (
+                <img
+                  src={designImageUrl}
+                  alt="Design preview"
+                  style={{ maxWidth: "100%", maxHeight: "100%" }}
+                />
+              ) : null}
+            </div>
           </div>
 
           {projectId && (
