@@ -33,6 +33,12 @@ export default function RootLayout({
               >
                 Nieuw ontwerp
               </Link>
+              <Link
+                href="/instellingen"
+                className="text-gray-600 hover:text-gray-900"
+              >
+                Instellingen
+              </Link>
             </div>
           </div>
         </nav>

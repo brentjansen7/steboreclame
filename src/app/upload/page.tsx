@@ -7,7 +7,9 @@ import ColorList from "@/components/ColorList";
 import { analyzeSvg, analyzeRaster } from "@/lib/svgAnalyzer";
 import { calculateVinyl, calculateVinylFromFractions, formatTotalCost } from "@/lib/vinylCalculator";
 import { supabase } from "@/lib/supabase";
+import { loadColorPrices, findPriceForColor, type ColorPrice } from "@/lib/colorPrices";
 import type { ColorGroup } from "@/types";
+import Link from "next/link";
 
 type RasterColors = { hex: string; fraction: number }[];
 
@@ -28,7 +30,12 @@ function UploadContent() {
   const [aspect, setAspect] = useState<number>(1); // height / width
   const [rasterColors, setRasterColors] = useState<RasterColors | null>(null);
   const [svgViewBox, setSvgViewBox] = useState<{ width: number; height: number } | null>(null);
+  const [colorPrices, setColorPrices] = useState<ColorPrice[]>([]);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setColorPrices(loadColorPrices());
+  }, []);
 
   async function handleDesignLoaded(content: string, name: string, file: File) {
     setFileName(name);
@@ -80,16 +87,17 @@ function UploadContent() {
       return;
     }
     const price = pricePerMeter ? parseFloat(pricePerMeter) : null;
+    const priceForColor = (hex: string) => findPriceForColor(hex, colorPrices);
 
     if (svgContent && svgViewBox) {
       const { colorGroups: groups } = analyzeSvg(svgContent);
-      const results = calculateVinyl(groups, rollWidth, price, svgViewBox, widthMm);
+      const results = calculateVinyl(groups, rollWidth, price, svgViewBox, widthMm, priceForColor);
       setColorGroups(results);
     } else if (rasterColors) {
-      const results = calculateVinylFromFractions(rasterColors, widthMm, heightMm, rollWidth, price);
+      const results = calculateVinylFromFractions(rasterColors, widthMm, heightMm, rollWidth, price, priceForColor);
       setColorGroups(results);
     }
-  }, [realWidthCm, realHeightCm, pricePerMeter, rollWidth, svgContent, svgViewBox, rasterColors]);
+  }, [realWidthCm, realHeightCm, pricePerMeter, rollWidth, svgContent, svgViewBox, rasterColors, colorPrices]);
 
   async function saveDesign() {
     if ((!svgContent && !designImageUrl) || !projectId) return;
@@ -213,7 +221,7 @@ function UploadContent() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Inkoopprijs per meter folie (€)
+                Standaardprijs per meter folie (€)
               </label>
               <input
                 type="number"
@@ -224,6 +232,13 @@ function UploadContent() {
                 placeholder="bijv. 4.50"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
+              <p className="text-xs text-gray-500 mt-1">
+                Gebruikt voor kleuren zonder eigen prijs. Stel per kleur in via{" "}
+                <Link href="/instellingen" className="text-blue-600 underline">
+                  Instellingen
+                </Link>
+                {colorPrices.length > 0 && ` (${colorPrices.length} kleuren ingesteld)`}.
+              </p>
             </div>
           </div>
           {!widthValid && (

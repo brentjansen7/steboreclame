@@ -3,12 +3,15 @@ import { svgUnitsToMm } from "./svgAnalyzer";
 
 // For raster designs: known total design size + per-color fraction.
 // Computes vinyl length on roll per color using oppervlakte / rolBreedte.
+// `priceForColor` lets the caller resolve per-color prices (e.g. from settings);
+// falls back to `pricePerMeter` when it returns null.
 export function calculateVinylFromFractions(
   colors: { hex: string; fraction: number }[],
   designWidthMm: number,
   designHeightMm: number,
   rollWidthMm: number,
-  pricePerMeter: number | null
+  pricePerMeter: number | null,
+  priceForColor?: (hex: string) => number | null
 ): ColorGroup[] {
   if (designWidthMm <= 0 || designHeightMm <= 0) return [];
 
@@ -16,12 +19,13 @@ export function calculateVinylFromFractions(
 
   const results: ColorGroup[] = colors.map((c) => {
     const colorArea = totalDesignArea * c.fraction; // mm²
-    // Approximate roll length: area divided by usable roll width.
-    // If color area exceeds rollWidth^2 we still divide by rollWidth (multi-strip).
     const rawLength = colorArea / rollWidthMm; // mm on roll
     const requiredLength = Math.ceil(rawLength * 1.1); // 10% waste margin
     const meters = requiredLength / 1000;
-    const cost = pricePerMeter ? meters * pricePerMeter : null;
+
+    const perColorPrice = priceForColor ? priceForColor(c.hex) : null;
+    const effectivePrice = perColorPrice ?? pricePerMeter;
+    const cost = effectivePrice ? meters * effectivePrice : null;
 
     return {
       color: c.hex,
@@ -41,7 +45,8 @@ export function calculateVinyl(
   rollWidthMm: number,
   pricePerMeter: number | null,
   svgViewBox: { width: number; height: number },
-  realWidthMm?: number
+  realWidthMm?: number,
+  priceForColor?: (hex: string) => number | null
 ): ColorGroup[] {
   const results: ColorGroup[] = [];
 
@@ -93,7 +98,9 @@ export function calculateVinyl(
     // Add 10% waste margin
     const requiredLength = Math.ceil(totalLength * 1.1);
     const meters = requiredLength / 1000;
-    const cost = pricePerMeter ? meters * pricePerMeter : null;
+    const perColorPrice = priceForColor ? priceForColor(color) : null;
+    const effectivePrice = perColorPrice ?? pricePerMeter;
+    const cost = effectivePrice ? meters * effectivePrice : null;
 
     results.push({
       color,
