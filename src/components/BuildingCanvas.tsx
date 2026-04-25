@@ -12,6 +12,7 @@ interface MidPoints { midTop:P2; midRight:P2; midBottom:P2; midLeft:P2; }
 interface Props {
   buildingPhotoUrl: string | null;
   designSvg: string | null;
+  designImageUrl?: string | null;
   onCornersChange: (corners: CornerPoints) => void;
   onExport: (canvas: HTMLCanvasElement) => void;
   setCanvasRef?: (canvas: HTMLCanvasElement | null) => void;
@@ -20,7 +21,8 @@ interface Props {
 }
 
 const MAX_CANVAS = 1200;
-const SRC_SIZE   = 512; // texture size — power-of-2 for best GL compat
+const SRC_SIZE   = 512;  // SVG texture size — keeps existing SVG behavior unchanged
+const RASTER_SRC = 2048; // PNG/JPEG cap — large enough that raster designs stay sharp
 
 // ─── Math ─────────────────────────────────────────────────────────────────────
 const lerp = (a:P2, b:P2, t:number):P2 =>
@@ -178,6 +180,27 @@ function svgToCanvas(svgStr:string, maxPx:number):Promise<HTMLCanvasElement|null
   });
 }
 
+// ─── Raster (PNG/JPEG) → opaque canvas ───────────────────────────────────────
+function rasterToCanvas(url:string, maxPx:number):Promise<HTMLCanvasElement|null>{
+  return new Promise(resolve=>{
+    const img=new Image();
+    img.crossOrigin='anonymous';
+    img.onload=()=>{
+      const W=img.naturalWidth, H=img.naturalHeight;
+      if(!W||!H){resolve(null);return;}
+      const scale=Math.min(1,maxPx/Math.max(W,H));
+      const cW=Math.max(1,Math.round(W*scale)), cH=Math.max(1,Math.round(H*scale));
+      const c=document.createElement('canvas'); c.width=cW; c.height=cH;
+      const cx=c.getContext('2d')!;
+      cx.fillStyle='white'; cx.fillRect(0,0,cW,cH);
+      cx.drawImage(img,0,0,cW,cH);
+      resolve(c);
+    };
+    img.onerror=()=>resolve(null);
+    img.src=url;
+  });
+}
+
 // ─── Defaults ─────────────────────────────────────────────────────────────────
 const DFLT:CornerPoints={topLeft:[100,100],topRight:[300,100],bottomRight:[300,250],bottomLeft:[100,250]};
 function midOf(pts:CornerPoints):MidPoints{
@@ -188,7 +211,7 @@ function midOf(pts:CornerPoints):MidPoints{
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function BuildingCanvas({
-  buildingPhotoUrl,designSvg,onCornersChange,onExport,setCanvasRef,initialCorners,
+  buildingPhotoUrl,designSvg,designImageUrl,onCornersChange,onExport,setCanvasRef,initialCorners,
 }:Props){
   const canvasRef=useRef<HTMLCanvasElement|null>(null);
   const photoRef =useRef<HTMLImageElement|null>(null);
@@ -217,9 +240,16 @@ export default function BuildingCanvas({
   },[buildingPhotoUrl]);
 
   useEffect(()=>{
-    if(!designSvg)return;
-    svgToCanvas(designSvg,SRC_SIZE).then(c=>setDesignSrc(c));
-  },[designSvg]);
+    if(designSvg){
+      svgToCanvas(designSvg,SRC_SIZE).then(c=>setDesignSrc(c));
+      return;
+    }
+    if(designImageUrl){
+      rasterToCanvas(designImageUrl,RASTER_SRC).then(c=>setDesignSrc(c));
+      return;
+    }
+    setDesignSrc(null);
+  },[designSvg,designImageUrl]);
 
   const drawDesign=useCallback((ctx:CanvasRenderingContext2D,p:CornerPoints,m:MidPoints,w:number,h:number)=>{
     if(!designSrc||!photoRef.current)return;

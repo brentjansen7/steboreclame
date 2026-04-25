@@ -61,6 +61,28 @@ function cornersToMaskBase64(
   return c.toDataURL("image/png").split(",")[1];
 }
 
+// Resize a raster (PNG/JPEG) data URL to a PNG base64 capped at maxPx
+function rasterToPngBase64(dataUrl: string, maxPx = 512): Promise<{ base64: string; mediaType: "image/png" } | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const W = img.naturalWidth, H = img.naturalHeight;
+      if (!W || !H) { resolve(null); return; }
+      const scale = Math.min(1, maxPx / Math.max(W, H));
+      const cW = Math.max(1, Math.round(W * scale));
+      const cH = Math.max(1, Math.round(H * scale));
+      const c = document.createElement("canvas");
+      c.width = cW; c.height = cH;
+      const cx = c.getContext("2d")!;
+      cx.fillStyle = "white"; cx.fillRect(0, 0, cW, cH);
+      cx.drawImage(img, 0, 0, cW, cH);
+      resolve({ base64: c.toDataURL("image/png").split(",")[1], mediaType: "image/png" });
+    };
+    img.onerror = () => resolve(null);
+    img.src = dataUrl;
+  });
+}
+
 // Rasterize SVG string to PNG base64 (client-side, no CORS issues)
 function svgToPngBase64(svgText: string, maxPx = 512): Promise<{ base64: string; mediaType: "image/png" } | null> {
   return new Promise((resolve) => {
@@ -109,6 +131,7 @@ export default function PreviewPage() {
   const [project, setProject] = useState<Project | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [designSvg, setDesignSvg] = useState<string | null>(null);
+  const [designImageUrl, setDesignImageUrl] = useState<string | null>(null);
   const [corners, setCorners] = useState<CornerPoints | null>(null);
   const [loading, setLoading] = useState(true);
   const [instruction, setInstruction] = useState("");
@@ -145,8 +168,20 @@ export default function PreviewPage() {
     setCorners(null);
   }
 
-  function handleSvgLoaded(text: string) {
-    setDesignSvg(text);
+  function handleDesignLoaded(content: string, name: string, file: File) {
+    const isSvg = file.type === "image/svg+xml" || /\.svg$/i.test(name);
+    if (isSvg) {
+      // FileUpload was called with readAsText=false (data URL); re-read SVG as text
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setDesignSvg(e.target?.result as string);
+        setDesignImageUrl(null);
+      };
+      reader.readAsText(file);
+    } else {
+      setDesignImageUrl(content);
+      setDesignSvg(null);
+    }
   }
 
   // Yellow 5%/10% grid with labels every 10% — lets Gemini read precise coords
@@ -311,10 +346,12 @@ export default function PreviewPage() {
       });
       const { base64, mediaType, w: smallW, h: smallH } = await prepareImageForApi(photoUrl, 1024);
 
-      // Rasterize SVG design if present
+      // Rasterize SVG design or resize raster design if present
       let designPayload: { base64: string; mediaType: "image/png" } | null = null;
       if (designSvg) {
         designPayload = await svgToPngBase64(designSvg, 512);
+      } else if (designImageUrl) {
+        designPayload = await rasterToPngBase64(designImageUrl, 512);
       }
 
       // Canvas renders at max 1200px (matching BuildingCanvas MAX_CANVAS=1200)
@@ -514,8 +551,7 @@ export default function PreviewPage() {
 
       // Build composite: erase existing sign with white, then draw design on top
       let compositeB64: string | null = null;
-      if (natCorners && designSvg) {
-        const { rasterizeSvg } = await import("@/lib/perspectiveEngine");
+      if (natCorners && (designSvg || designImageUrl)) {
         const Perspective = (await import("perspectivejs")).default;
 
         const signW = Math.round(Math.max(
@@ -527,7 +563,27 @@ export default function PreviewPage() {
           Math.hypot(natCorners.bottomRight[0]-natCorners.topRight[0], natCorners.bottomRight[1]-natCorners.topRight[1])
         ));
 
-        const designCanvas = await rasterizeSvg(designSvg, Math.max(signW, 64), Math.max(signH, 64));
+        let designCanvas: HTMLCanvasElement;
+        if (designSvg) {
+          const { rasterizeSvg } = await import("@/lib/perspectiveEngine");
+          designCanvas = await rasterizeSvg(designSvg, Math.max(signW, 64), Math.max(signH, 64));
+        } else {
+          designCanvas = await new Promise<HTMLCanvasElement>((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => {
+              const c = document.createElement("canvas");
+              c.width = Math.max(signW, 64);
+              c.height = Math.max(signH, 64);
+              const cx = c.getContext("2d")!;
+              cx.fillStyle = "white";
+              cx.fillRect(0, 0, c.width, c.height);
+              cx.drawImage(img, 0, 0, c.width, c.height);
+              resolve(c);
+            };
+            img.onerror = reject;
+            img.src = designImageUrl!;
+          });
+        }
 
         const compositeCanvas = document.createElement("canvas");
         compositeCanvas.width = natW;
@@ -688,15 +744,18 @@ export default function PreviewPage() {
           </div>
 
           <div>
-            <h3 className="font-semibold mb-2">Ontwerp (SVG)</h3>
+            <h3 className="font-semibold mb-2">Ontwerp (SVG, PNG of JPEG)</h3>
             <FileUpload
-              accept=".svg"
-              label="Upload SVG ontwerp"
-              onFileLoaded={handleSvgLoaded}
-              readAsText
+              accept=".svg,image/svg+xml,image/png,image/jpeg"
+              label="Upload ontwerp"
+              onFileLoaded={handleDesignLoaded}
+              readAsText={false}
             />
             {designSvg && (
               <p className="text-xs text-green-600 mt-1">SVG geladen — AI gebruikt dit als referentie</p>
+            )}
+            {designImageUrl && (
+              <p className="text-xs text-green-600 mt-1">Afbeelding geladen — AI gebruikt dit als referentie</p>
             )}
           </div>
 
@@ -804,6 +863,7 @@ export default function PreviewPage() {
           <BuildingCanvas
             buildingPhotoUrl={photoUrl}
             designSvg={designSvg}
+            designImageUrl={designImageUrl}
             onCornersChange={handleCornersChange}
             onExport={handleExport}
             setCanvasRef={setCanvasRef}
