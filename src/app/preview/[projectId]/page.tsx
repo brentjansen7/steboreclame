@@ -705,36 +705,38 @@ export default function PreviewPage() {
     return "bg-red-100 text-red-800 border-red-200";
   }
 
-  if (loading) return <p className="text-gray-500">Laden...</p>;
-  if (!project) return <p className="text-red-500">Project niet gevonden</p>;
+  if (loading) return <p className="text-[var(--color-stebo-mute)]">Laden...</p>;
+  if (!project) return <p className="text-red-600">Project niet gevonden</p>;
 
   return (
     <div className="max-w-6xl">
-      <div className="flex items-center justify-between mb-6">
+      <header className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold">{project.name}</h1>
-          <p className="text-gray-500">Pand-preview met AI plaatsing</p>
+          <p className="text-xs font-semibold tracking-[0.18em] text-[var(--color-stebo-blue-700)] uppercase mb-2">
+            <span className="inline-block w-6 h-px bg-[var(--color-stebo-yellow)] align-middle mr-2" />
+            Stap 3 — Preview
+          </p>
+          <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-[var(--color-stebo-ink)]">
+            {project.name}
+          </h1>
+          <p className="text-[var(--color-stebo-mute)] mt-1.5">Pand-preview met AI plaatsing (Gemini)</p>
         </div>
         <div className="flex gap-2">
-          <Link
-            href={`/calculator/${projectId}`}
-            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-          >
+          <Link href={`/calculator/${projectId}`} className="btn-ghost">
             Calculator
           </Link>
-          <Link
-            href={`/cut/${projectId}`}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            Snij-workflow
+          <Link href={`/cut/${projectId}`} className="btn-primary">
+            Snij-workflow →
           </Link>
         </div>
-      </div>
+      </header>
 
-      <div className="grid grid-cols-3 gap-6">
-        <div className="space-y-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="space-y-5">
           <div>
-            <h3 className="font-semibold mb-2">Gevelfoto</h3>
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--color-stebo-mute)] mb-2">
+              Gevelfoto
+            </h3>
             <FileUpload
               accept="image/*"
               label="Upload foto van het pand"
@@ -744,7 +746,9 @@ export default function PreviewPage() {
           </div>
 
           <div>
-            <h3 className="font-semibold mb-2">Ontwerp (SVG, PNG of JPEG)</h3>
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--color-stebo-mute)] mb-2">
+              Ontwerp (SVG, PNG of JPEG)
+            </h3>
             <FileUpload
               accept=".svg,image/svg+xml,image/png,image/jpeg"
               label="Upload ontwerp"
@@ -752,30 +756,34 @@ export default function PreviewPage() {
               readAsText={false}
             />
             {designSvg && (
-              <p className="text-xs text-green-600 mt-1">SVG geladen — AI gebruikt dit als referentie</p>
+              <p className="text-xs text-[var(--color-stebo-blue-700)] mt-1.5 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-stebo-yellow)]" /> SVG geladen — AI gebruikt dit als referentie
+              </p>
             )}
             {designImageUrl && (
-              <p className="text-xs text-green-600 mt-1">Afbeelding geladen — AI gebruikt dit als referentie</p>
+              <p className="text-xs text-[var(--color-stebo-blue-700)] mt-1.5 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-stebo-yellow)]" /> Afbeelding geladen — AI gebruikt dit als referentie
+              </p>
             )}
           </div>
 
           {/* AI Placement */}
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <h3 className="font-semibold mb-2 text-sm flex items-center gap-1">
-              <span>AI Plaatsing</span>
-              <span className="text-xs font-normal text-blue-600">(Gemini)</span>
+          <div className="card p-4 border-[var(--color-stebo-blue-200)] bg-[var(--color-stebo-blue-50)]">
+            <h3 className="font-semibold mb-3 text-sm flex items-center gap-2 text-[var(--color-stebo-blue-900)]">
+              <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-[var(--color-stebo-yellow)] text-[var(--color-stebo-blue-900)] text-[10px] font-bold">AI</span>
+              <span>Plaatsing met Gemini</span>
             </h3>
             <textarea
               value={instruction}
               onChange={(e) => setInstruction(e.target.value)}
               placeholder="Bijv. 'vervang het Blokker logo door ons ontwerp' of 'plaats het SVG boven de deur'"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              className="input-stebo text-sm mb-2"
               rows={3}
             />
             <button
               onClick={analyzeWithClaude}
               disabled={analyzing || !instruction.trim() || !photoUrl}
-              className="w-full px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium transition-colors"
+              className="btn-primary w-full"
             >
               {analyzing ? (
                 <span className="flex items-center justify-center gap-2">
@@ -802,26 +810,28 @@ export default function PreviewPage() {
                   <span>{Math.round(aiFeedback.confidence * 100)}% zekerheid</span>
                 </div>
                 {aiFeedback.targetDescription && (
-                  <p className="text-xs text-gray-600 italic">{aiFeedback.targetDescription}</p>
+                  <p className="text-xs text-[var(--color-stebo-mute)] italic">{aiFeedback.targetDescription}</p>
                 )}
                 {aiFeedback.reasoning && (
-                  <p className="text-xs text-gray-500">{aiFeedback.reasoning}</p>
+                  <p className="text-xs text-[var(--color-stebo-mute)]">{aiFeedback.reasoning}</p>
                 )}
 
                 {/* Refine */}
-                <div className="border-t border-blue-200 pt-2">
-                  <p className="text-xs text-gray-500 mb-1">Verfijn plaatsing:</p>
+                <div className="border-t border-[var(--color-stebo-blue-200)] pt-2">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-[var(--color-stebo-mute)] mb-1">
+                    Verfijn plaatsing
+                  </p>
                   <textarea
                     value={refineText}
                     onChange={(e) => setRefineText(e.target.value)}
                     placeholder="Bijv. 'maak het groter' of 'schuif naar rechts'"
-                    className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                    className="input-stebo text-xs"
                     rows={2}
                   />
                   <button
                     onClick={refineWithClaude}
                     disabled={analyzing || !refineText.trim()}
-                    className="w-full mt-1 px-2 py-1 bg-gray-600 text-white rounded text-xs hover:bg-gray-700 disabled:opacity-50 transition-colors"
+                    className="btn-ghost w-full mt-1 text-xs"
                   >
                     {analyzing ? "Verfijnen..." : "Verfijn"}
                   </button>
@@ -831,13 +841,13 @@ export default function PreviewPage() {
                 {rawResponse && (
                   <button
                     onClick={() => setShowRaw((v) => !v)}
-                    className="text-xs text-gray-400 hover:text-gray-600 underline"
+                    className="text-xs text-[var(--color-stebo-mute)] hover:text-[var(--color-stebo-ink)] underline underline-offset-2"
                   >
                     {showRaw ? "Verberg" : "Toon"} Gemini-antwoord
                   </button>
                 )}
                 {showRaw && rawResponse && (
-                  <pre className="text-xs bg-gray-100 p-2 rounded overflow-x-auto whitespace-pre-wrap break-all border">
+                  <pre className="text-xs bg-white p-2 rounded overflow-x-auto whitespace-pre-wrap break-all border border-[var(--color-stebo-line)] font-mono">
                     {rawResponse}
                   </pre>
                 )}
@@ -845,64 +855,79 @@ export default function PreviewPage() {
             )}
           </div>
 
-          <div className="text-sm text-gray-500 space-y-1">
-            <p>1. Upload een foto van het pand</p>
-            <p>2. Upload het SVG ontwerp</p>
-            <p>3. Geef instructie voor de plaatsing</p>
-            <p>4. Of sleep de hoekpunten handmatig</p>
-            <p>5. Exporteer als PNG</p>
-          </div>
+          <ol className="text-xs text-[var(--color-stebo-mute)] space-y-1 pl-1">
+            {[
+              "Upload een foto van het pand",
+              "Upload het SVG ontwerp",
+              "Geef instructie voor de plaatsing",
+              "Of sleep de hoekpunten handmatig",
+              "Exporteer als PNG",
+            ].map((step, i) => (
+              <li key={i} className="flex gap-2">
+                <span className="font-mono font-semibold text-[var(--color-stebo-blue-700)] flex-shrink-0">
+                  {String(i + 1).padStart(2, "0")}
+                </span>
+                <span>{step}</span>
+              </li>
+            ))}
+          </ol>
         </div>
 
-        <div className="col-span-2">
+        <div className="lg:col-span-2">
           {photoUrl && (
-            <p className="text-xs text-blue-600 mb-2 font-medium">
-              Sleep een gebied op de foto om het ontwerp daar te plaatsen — of versleep de blauwe hoekpunten
+            <p className="text-xs text-[var(--color-stebo-blue-700)] mb-2 font-semibold flex items-center gap-1.5">
+              <span className="inline-block w-3 h-3 rounded-full bg-[var(--color-stebo-yellow)] border-2 border-[var(--color-stebo-blue-700)]" />
+              Sleep een gebied op de foto — of versleep de blauwe hoekpunten
             </p>
           )}
-          <BuildingCanvas
-            buildingPhotoUrl={photoUrl}
-            designSvg={designSvg}
-            designImageUrl={designImageUrl}
-            onCornersChange={handleCornersChange}
-            onExport={handleExport}
-            setCanvasRef={setCanvasRef}
-            initialCorners={corners}
-            clickToPlace={true}
-          />
+          <div className="card p-2 overflow-hidden">
+            <BuildingCanvas
+              buildingPhotoUrl={photoUrl}
+              designSvg={designSvg}
+              designImageUrl={designImageUrl}
+              onCornersChange={handleCornersChange}
+              onExport={handleExport}
+              setCanvasRef={setCanvasRef}
+              initialCorners={corners}
+              clickToPlace={true}
+            />
+          </div>
 
-          {/* Two generate buttons */}
           {photoUrl && (
             <div className="mt-4 space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                {/* Gemini */}
-                <div>
-                  <button
-                    onClick={handleAIEnhance}
-                    disabled={enhancing || !instruction.trim()}
-                    className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors font-medium text-sm"
-                  >
-                    {enhancing ? (
-                      <span className="flex items-center justify-center gap-2">
-                        <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
-                        </svg>
-                        Gemini...
-                      </span>
-                    ) : "Genereer met Gemini"}
-                  </button>
-                  {enhanceError && <p className="mt-1 text-xs text-red-600">{enhanceError}</p>}
-                </div>
-
+              <div>
+                <button
+                  onClick={handleAIEnhance}
+                  disabled={enhancing || !instruction.trim()}
+                  className="btn-yellow w-full py-3"
+                >
+                  {enhancing ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                      </svg>
+                      Gemini...
+                    </span>
+                  ) : "✨ Genereer foto-realistische preview"}
+                </button>
+                {enhanceError && <p className="mt-1 text-xs text-red-600">{enhanceError}</p>}
               </div>
 
-              {/* Gemini result */}
               {enhancedImageUrl && (
-                <div className="mt-2">
-                  <p className="text-xs text-blue-700 font-medium mb-1">Gemini resultaat</p>
-                  <img src={enhancedImageUrl} alt="Gemini" className="w-full rounded-lg border border-blue-200" />
-                  <a href={enhancedImageUrl} download={`${project?.name || "preview"}-gemini.jpg`} className="inline-block mt-1 text-xs text-blue-600 underline">Download</a>
+                <div className="card p-3 mt-2">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-[var(--color-stebo-blue-700)] mb-2">
+                    Gemini resultaat
+                  </p>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={enhancedImageUrl} alt="Gemini" className="w-full rounded-lg border border-[var(--color-stebo-line)]" />
+                  <a
+                    href={enhancedImageUrl}
+                    download={`${project?.name || "preview"}-gemini.jpg`}
+                    className="inline-flex items-center gap-1 mt-2 text-sm font-medium text-[var(--color-stebo-blue-700)] hover:text-[var(--color-stebo-blue-800)] underline underline-offset-2"
+                  >
+                    Download
+                  </a>
                 </div>
               )}
             </div>

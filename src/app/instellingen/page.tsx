@@ -64,22 +64,34 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-3xl">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold">Instellingen</h1>
-        {saved && <span className="text-sm text-green-600">Opgeslagen</span>}
-      </div>
+      <header className="mb-8 flex items-end justify-between">
+        <div>
+          <p className="text-xs font-semibold tracking-[0.18em] text-[var(--color-stebo-blue-700)] uppercase mb-2">
+            <span className="inline-block w-6 h-px bg-[var(--color-stebo-yellow)] align-middle mr-2" />
+            Configuratie
+          </p>
+          <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-[var(--color-stebo-ink)]">
+            Instellingen
+          </h1>
+        </div>
+        {saved && (
+          <span className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--color-stebo-blue-900)] bg-[var(--color-stebo-yellow-50)] border border-[var(--color-stebo-yellow-200)] rounded-full px-3 py-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-stebo-yellow)]" /> Opgeslagen
+          </span>
+        )}
+      </header>
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
-        <h2 className="font-semibold mb-1">Folieprijs per kleur</h2>
-        <p className="text-sm text-gray-500 mb-4">
+      <div className="card p-6 mb-6">
+        <h2 className="section-title text-lg mb-2">Folieprijs per kleur</h2>
+        <p className="text-sm text-[var(--color-stebo-mute)] mb-6 mt-3 leading-relaxed">
           De calculator gebruikt automatisch deze prijs voor elke kleur in je ontwerp
           (matching binnen kleurenafstand). Niet gevonden? Dan wordt de algemene
           prijs uit de upload-pagina gebruikt.
         </p>
 
-        <div className="grid grid-cols-12 gap-3 items-end mb-4 p-4 bg-gray-50 rounded-lg">
-          <div className="col-span-3">
-            <label className="block text-xs font-medium text-gray-600 mb-1">
+        <div className="grid grid-cols-12 gap-3 items-end mb-4 p-4 bg-[var(--color-stebo-paper)] border border-[var(--color-stebo-line)] rounded-lg">
+          <div className="col-span-12 md:col-span-3">
+            <label className="block text-xs font-semibold uppercase tracking-wider text-[var(--color-stebo-mute)] mb-1.5">
               Hex
             </label>
             <input
@@ -87,11 +99,11 @@ export default function SettingsPage() {
               value={hexInput}
               onChange={(e) => setHexInput(e.target.value)}
               placeholder="#FF0000"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="input-stebo text-sm font-mono"
             />
           </div>
-          <div className="col-span-4">
-            <label className="block text-xs font-medium text-gray-600 mb-1">
+          <div className="col-span-12 md:col-span-4">
+            <label className="block text-xs font-semibold uppercase tracking-wider text-[var(--color-stebo-mute)] mb-1.5">
               Naam (optioneel)
             </label>
             <input
@@ -99,12 +111,12 @@ export default function SettingsPage() {
               value={nameInput}
               onChange={(e) => setNameInput(e.target.value)}
               placeholder="bijv. RAL 9005 Zwart"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="input-stebo text-sm"
             />
           </div>
-          <div className="col-span-3">
-            <label className="block text-xs font-medium text-gray-600 mb-1">
-              Prijs per meter (€)
+          <div className="col-span-8 md:col-span-3">
+            <label className="block text-xs font-semibold uppercase tracking-wider text-[var(--color-stebo-mute)] mb-1.5">
+              € / meter
             </label>
             <input
               type="number"
@@ -113,81 +125,82 @@ export default function SettingsPage() {
               value={priceInput}
               onChange={(e) => setPriceInput(e.target.value)}
               placeholder="4.50"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="input-stebo text-sm"
             />
           </div>
-          <div className="col-span-2">
-            <button
-              onClick={addColor}
-              className="w-full px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium transition-colors"
-            >
+          <div className="col-span-4 md:col-span-2">
+            <button onClick={addColor} className="btn-primary w-full">
               Toevoegen
             </button>
           </div>
         </div>
         {error && (
-          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded p-2 mb-4">
+          <p className="text-sm text-red-700 bg-red-50 border-l-4 border-red-500 rounded-r p-3 mb-4">
             {error}
           </p>
         )}
 
         {prices.length === 0 ? (
-          <p className="text-sm text-gray-500 italic text-center py-8">
-            Nog geen kleuren toegevoegd
-          </p>
+          <div className="text-center py-12 border border-dashed border-[var(--color-stebo-line)] rounded-lg">
+            <p className="text-sm text-[var(--color-stebo-mute)] italic">
+              Nog geen kleuren toegevoegd
+            </p>
+          </div>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs text-gray-500 border-b">
-                <th className="px-3 py-2">Kleur</th>
-                <th className="px-3 py-2">Naam</th>
-                <th className="px-3 py-2">€ / meter</th>
-                <th className="px-3 py-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {prices.map((p) => (
-                <tr key={p.hex} className="border-b last:border-0">
-                  <td className="px-3 py-2">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className="w-6 h-6 rounded border border-gray-300"
-                        style={{ backgroundColor: p.hex }}
-                      />
-                      <span className="font-mono text-xs">{p.hex}</span>
-                    </div>
-                  </td>
-                  <td className="px-3 py-2">
-                    <input
-                      type="text"
-                      defaultValue={p.name || ""}
-                      onBlur={(e) => updateName(p.hex, e.target.value)}
-                      placeholder="—"
-                      className="w-full px-2 py-1 border border-transparent hover:border-gray-300 rounded focus:outline-none focus:border-blue-500 text-sm"
-                    />
-                  </td>
-                  <td className="px-3 py-2">
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      defaultValue={p.pricePerM}
-                      onBlur={(e) => updatePrice(p.hex, e.target.value)}
-                      className="w-24 px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    />
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    <button
-                      onClick={() => removeColor(p.hex)}
-                      className="text-red-600 hover:text-red-800 text-xs"
-                    >
-                      Verwijder
-                    </button>
-                  </td>
+          <div className="overflow-hidden border border-[var(--color-stebo-line)] rounded-lg">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs font-semibold uppercase tracking-wider text-[var(--color-stebo-mute)] bg-[var(--color-stebo-paper)] border-b border-[var(--color-stebo-line)]">
+                  <th className="px-4 py-3">Kleur</th>
+                  <th className="px-4 py-3">Naam</th>
+                  <th className="px-4 py-3">€ / meter</th>
+                  <th className="px-4 py-3 w-20"></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {prices.map((p) => (
+                  <tr key={p.hex} className="border-b border-[var(--color-stebo-line)] last:border-0 hover:bg-[var(--color-stebo-paper)] transition-colors">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <div
+                          className="w-7 h-7 rounded-md border border-[var(--color-stebo-line)] shadow-inner"
+                          style={{ backgroundColor: p.hex }}
+                        />
+                        <span className="font-mono text-xs text-[var(--color-stebo-ink)]">{p.hex}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <input
+                        type="text"
+                        defaultValue={p.name || ""}
+                        onBlur={(e) => updateName(p.hex, e.target.value)}
+                        placeholder="—"
+                        className="w-full px-2 py-1 border border-transparent hover:border-[var(--color-stebo-line)] rounded focus:outline-none focus:border-[var(--color-stebo-blue-600)] text-sm bg-transparent"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        defaultValue={p.pricePerM}
+                        onBlur={(e) => updatePrice(p.hex, e.target.value)}
+                        className="w-24 px-2 py-1 border border-[var(--color-stebo-line)] rounded text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-stebo-blue-600)]/20 focus:border-[var(--color-stebo-blue-600)]"
+                      />
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        onClick={() => removeColor(p.hex)}
+                        className="text-[var(--color-stebo-mute)] hover:text-red-600 text-xs font-medium transition-colors"
+                      >
+                        Verwijder
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>

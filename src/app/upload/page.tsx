@@ -144,8 +144,19 @@ function UploadContent() {
   const widthValid = parseFloat(realWidthCm) > 0;
 
   return (
-    <div className="max-w-4xl">
-      <h1 className="text-3xl font-bold mb-6">Ontwerp uploaden</h1>
+    <div className="max-w-5xl">
+      <header className="mb-8">
+        <p className="text-xs font-semibold tracking-[0.18em] text-[var(--color-stebo-blue-700)] uppercase mb-2">
+          <span className="inline-block w-6 h-px bg-[var(--color-stebo-yellow)] align-middle mr-2" />
+          Stap 1 — Ontwerp
+        </p>
+        <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-[var(--color-stebo-ink)]">
+          Ontwerp uploaden
+        </h1>
+        <p className="text-[var(--color-stebo-mute)] mt-1.5">
+          SVG geeft de meest precieze berekening. PNG/JPEG werkt ook voor schattingen.
+        </p>
+      </header>
 
       <div className="mb-6">
         <FileUpload
@@ -157,11 +168,11 @@ function UploadContent() {
       </div>
 
       {designReady && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
-          <h3 className="font-semibold mb-4">Afmetingen op de gevel</h3>
-          <div className="grid grid-cols-2 gap-4">
+        <div className="card p-6 mb-6">
+          <h3 className="section-title text-lg mb-6">Afmetingen op de gevel</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-[var(--color-stebo-mute)] mb-1.5">
                 Werkelijke breedte (cm) *
               </label>
               <input
@@ -171,14 +182,16 @@ function UploadContent() {
                 value={realWidthCm}
                 onChange={(e) => setRealWidthCm(e.target.value)}
                 placeholder="bijv. 200"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="input-stebo"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Werkelijke hoogte (cm) *
+              <label className="flex items-center justify-between text-xs font-semibold uppercase tracking-wider text-[var(--color-stebo-mute)] mb-1.5">
+                <span>Werkelijke hoogte (cm) *</span>
                 {heightLocked && (
-                  <span className="ml-2 text-xs font-normal text-gray-400">auto uit verhouding</span>
+                  <span className="font-normal normal-case tracking-normal text-[10px] text-[var(--color-stebo-blue-700)] bg-[var(--color-stebo-blue-50)] px-2 py-0.5 rounded">
+                    auto uit verhouding
+                  </span>
                 )}
               </label>
               <div className="flex gap-2">
@@ -192,13 +205,13 @@ function UploadContent() {
                     setRealHeightCm(e.target.value);
                   }}
                   placeholder="bijv. 80"
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="input-stebo flex-1"
                 />
                 {!heightLocked && (
                   <button
                     type="button"
                     onClick={() => setHeightLocked(true)}
-                    className="px-3 py-2 text-xs bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                    className="btn-ghost"
                     title="Herstel verhouding van ontwerp"
                   >
                     Reset
@@ -207,21 +220,21 @@ function UploadContent() {
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-[var(--color-stebo-mute)] mb-1.5">
                 Folierol breedte
               </label>
               <select
                 value={rollWidth}
                 onChange={(e) => setRollWidth(parseInt(e.target.value))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="input-stebo appearance-none"
               >
                 <option value={630}>63 cm (standaard)</option>
                 <option value={1260}>126 cm (breed)</option>
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Standaardprijs per meter folie (€)
+              <label className="block text-xs font-semibold uppercase tracking-wider text-[var(--color-stebo-mute)] mb-1.5">
+                Standaardprijs per meter (€)
               </label>
               <input
                 type="number"
@@ -230,11 +243,11 @@ function UploadContent() {
                 value={pricePerMeter}
                 onChange={(e) => setPricePerMeter(e.target.value)}
                 placeholder="bijv. 4.50"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="input-stebo"
               />
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-[var(--color-stebo-mute)] mt-1.5 leading-relaxed">
                 Gebruikt voor kleuren zonder eigen prijs. Stel per kleur in via{" "}
-                <Link href="/instellingen" className="text-blue-600 underline">
+                <Link href="/instellingen" className="text-[var(--color-stebo-blue-700)] underline underline-offset-2">
                   Instellingen
                 </Link>
                 {colorPrices.length > 0 && ` (${colorPrices.length} kleuren ingesteld)`}.
@@ -242,9 +255,14 @@ function UploadContent() {
             </div>
           </div>
           {!widthValid && (
-            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2 mt-3">
-              Vul eerst breedte en hoogte in om folie per kleur te berekenen.
-            </p>
+            <div className="mt-4 flex gap-2 items-start text-sm bg-[var(--color-stebo-yellow-50)] border-l-4 border-[var(--color-stebo-yellow)] rounded-r p-3">
+              <svg className="w-4 h-4 mt-0.5 flex-shrink-0 text-[var(--color-stebo-yellow-700)]" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+              </svg>
+              <span className="text-[var(--color-stebo-ink)]">
+                Vul eerst breedte en hoogte in om folie per kleur te berekenen.
+              </span>
+            </div>
           )}
         </div>
       )}
@@ -253,15 +271,16 @@ function UploadContent() {
         <>
           <ColorList colorGroups={colorGroups} totalCost={totalCost} />
 
-          <div className="mt-6 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h3 className="font-semibold mb-3">Ontwerp preview</h3>
+          <div className="mt-6 card p-6">
+            <h3 className="section-title text-lg mb-6">Ontwerp preview</h3>
             <div
-              className="bg-gray-100 rounded-lg p-4 flex justify-center"
+              className="bg-[var(--color-stebo-paper)] border border-dashed border-[var(--color-stebo-line)] rounded-lg p-6 flex justify-center"
               style={{ maxHeight: 400, overflow: "auto" }}
             >
               {svgContent ? (
                 <div dangerouslySetInnerHTML={{ __html: svgContent }} />
               ) : designImageUrl ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
                 <img
                   src={designImageUrl}
                   alt="Design preview"
@@ -272,13 +291,19 @@ function UploadContent() {
           </div>
 
           {projectId && (
-            <div className="mt-6">
+            <div className="mt-6 flex items-center justify-between gap-4 card p-5 bg-[var(--color-stebo-blue-700)] text-white border-[var(--color-stebo-blue-700)]">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-[var(--color-stebo-yellow)]">
+                  Klaar
+                </p>
+                <p className="font-semibold">Opslaan en doorgaan naar de calculator</p>
+              </div>
               <button
                 onClick={saveDesign}
                 disabled={saving}
-                className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium transition-colors"
+                className="btn-yellow"
               >
-                {saving ? "Opslaan..." : "Opslaan & ga naar calculator"}
+                {saving ? "Opslaan..." : "Opslaan & verder →"}
               </button>
             </div>
           )}
@@ -290,7 +315,7 @@ function UploadContent() {
 
 export default function UploadPage() {
   return (
-    <Suspense fallback={<p className="text-gray-500">Laden...</p>}>
+    <Suspense fallback={<p className="text-[var(--color-stebo-mute)]">Laden...</p>}>
       <UploadContent />
     </Suspense>
   );

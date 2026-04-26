@@ -176,39 +176,47 @@ export default function CutFlowPage() {
     }
   }
 
-  if (loading) return <p className="text-gray-500">Laden...</p>;
-  if (!project) return <p className="text-red-500">Project niet gevonden</p>;
+  if (loading) return <p className="text-[var(--color-stebo-mute)]">Laden...</p>;
+  if (!project) return <p className="text-red-600">Project niet gevonden</p>;
 
   const doneCount = cutSteps.filter((s) => s.status === "done").length;
+  const allDone = doneCount === cutSteps.length && cutSteps.length > 0;
 
   return (
-    <div className="max-w-4xl">
-      <div className="flex items-center justify-between mb-6">
+    <div className="max-w-5xl">
+      <header className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold">{project.name}</h1>
-          <p className="text-gray-500">
-            Snij-workflow — {doneCount} van {cutSteps.length} kleuren gesneden
+          <p className="text-xs font-semibold tracking-[0.18em] text-[var(--color-stebo-blue-700)] uppercase mb-2">
+            <span className="inline-block w-6 h-px bg-[var(--color-stebo-yellow)] align-middle mr-2" />
+            Stap 4 — Snij-workflow
+          </p>
+          <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-[var(--color-stebo-ink)]">
+            {project.name}
+          </h1>
+          <p className="text-[var(--color-stebo-mute)] mt-1.5">
+            {doneCount} van {cutSteps.length} kleuren gesneden
           </p>
         </div>
-        <Link
-          href={`/calculator/${projectId}`}
-          className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-        >
-          Terug naar calculator
+        <Link href={`/calculator/${projectId}`} className="btn-ghost">
+          ← Terug naar calculator
         </Link>
-      </div>
+      </header>
 
       {/* Overall progress */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-6">
-        <div className="flex justify-between text-sm text-gray-600 mb-2">
-          <span>Totale voortgang</span>
-          <span>
+      <div className="card p-5 mb-6">
+        <div className="flex justify-between items-baseline mb-3">
+          <span className="text-xs font-semibold uppercase tracking-wider text-[var(--color-stebo-mute)]">
+            Totale voortgang
+          </span>
+          <span className="text-sm font-mono font-semibold text-[var(--color-stebo-ink)]">
             {doneCount} / {cutSteps.length} kleuren
           </span>
         </div>
-        <div className="w-full bg-gray-200 rounded-full h-4">
+        <div className="w-full bg-[var(--color-stebo-line)] rounded-full h-2.5 overflow-hidden">
           <div
-            className="bg-green-500 h-4 rounded-full transition-all duration-700"
+            className={`h-2.5 rounded-full transition-all duration-700 ${
+              allDone ? "bg-[var(--color-stebo-yellow)]" : "bg-[var(--color-stebo-blue-700)]"
+            }`}
             style={{
               width: cutSteps.length
                 ? `${(doneCount / cutSteps.length) * 100}%`
@@ -216,22 +224,33 @@ export default function CutFlowPage() {
             }}
           />
         </div>
-        {doneCount === cutSteps.length && cutSteps.length > 0 && (
-          <p className="text-green-600 font-semibold mt-2 text-center">
-            Alle kleuren gesneden!
-          </p>
+        {allDone && (
+          <div className="flex items-center justify-center gap-2 mt-3 text-[var(--color-stebo-blue-900)] font-semibold">
+            <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-[var(--color-stebo-yellow)]">
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+              </svg>
+            </span>
+            <span>Alle kleuren gesneden — klaar voor montage</span>
+          </div>
         )}
       </div>
 
       {/* Cut steps */}
       {nestedResults.length === 0 ? (
-        <div className="text-center py-12 text-gray-500">
-          <p className="text-lg">Geen ontwerpen gevonden</p>
-          <p className="text-sm mt-1">
+        <div className="card p-12 text-center">
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-[var(--color-stebo-yellow-50)] mb-4">
+            <svg className="w-7 h-7 text-[var(--color-stebo-blue-700)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a6.759 6.759 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          </div>
+          <p className="text-lg font-semibold text-[var(--color-stebo-ink)]">Geen ontwerpen gevonden</p>
+          <p className="text-sm text-[var(--color-stebo-mute)] mt-1">
             Upload eerst een ontwerp via de{" "}
             <Link
               href={`/upload?projectId=${projectId}`}
-              className="text-blue-600 hover:underline"
+              className="text-[var(--color-stebo-blue-700)] hover:text-[var(--color-stebo-blue-800)] underline underline-offset-2 font-medium"
             >
               upload pagina
             </Link>

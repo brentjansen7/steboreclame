@@ -29,50 +29,59 @@ export default function CutStep({
     setTimeout(() => setExporting(false), 500);
   };
 
+  const isDone = status === "done";
+
   return (
-    <div
-      className={`rounded-xl border-2 p-6 transition-colors ${
-        status === "done"
-          ? "border-green-300 bg-green-50"
-          : "border-blue-300 bg-white"
+    <article
+      className={`card p-6 transition-all ${
+        isDone
+          ? "border-[var(--color-stebo-yellow-200)] bg-[var(--color-stebo-yellow-50)]"
+          : "border-[var(--color-stebo-line)] hover:border-[var(--color-stebo-blue-300)]"
       }`}
     >
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
+      <div className="flex items-start justify-between gap-4 mb-5">
+        <div className="flex items-center gap-4">
           <div
-            className="w-10 h-10 rounded-lg border-2 border-gray-300"
+            className="relative w-14 h-14 rounded-lg border-2 border-white shadow-md flex-shrink-0"
             style={{ backgroundColor: result.color }}
-          />
+          >
+            <div className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-[var(--color-stebo-blue-700)] text-white text-[11px] font-bold flex items-center justify-center font-mono shadow">
+              {stepNumber}
+            </div>
+          </div>
           <div>
-            <h3 className="font-bold text-lg">
-              Kleur {stepNumber} van {totalSteps}:{" "}
-              <span className="font-mono">{result.color}</span>
+            <p className="text-xs font-semibold uppercase tracking-wider text-[var(--color-stebo-mute)]">
+              Kleur {stepNumber} van {totalSteps}
+            </p>
+            <h3 className="font-bold text-lg text-[var(--color-stebo-ink)] font-mono mt-0.5">
+              {result.color}
             </h3>
-            <p className="text-sm text-gray-600">
-              Rolbreedte: {result.rollWidthMm / 10}cm — Benodigde lengte:{" "}
-              {(result.totalLengthMm / 10).toFixed(1)}cm
+            <p className="text-sm text-[var(--color-stebo-mute)] mt-1">
+              Rolbreedte <span className="font-mono font-semibold text-[var(--color-stebo-ink)]">{result.rollWidthMm / 10} cm</span>
+              <span className="mx-2">·</span>
+              Lengte <span className="font-mono font-semibold text-[var(--color-stebo-ink)]">{(result.totalLengthMm / 10).toFixed(1)} cm</span>
             </p>
           </div>
         </div>
-        {status === "done" && (
-          <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium">
+        {isDone && (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-[var(--color-stebo-yellow)] text-[var(--color-stebo-blue-900)] rounded-full text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+            </svg>
             Gesneden
           </span>
         )}
       </div>
 
       {/* Instructions */}
-      {status === "pending" && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-          <p className="font-medium text-blue-800">
-            Leg{" "}
-            <span className="font-bold">{result.color.toUpperCase()}</span>{" "}
-            folie in de machine
+      {!isDone && (
+        <div className="bg-[var(--color-stebo-paper)] border-l-4 border-[var(--color-stebo-yellow)] rounded-r-lg p-4 mb-4">
+          <p className="font-semibold text-[var(--color-stebo-ink)] text-sm">
+            Leg <span className="font-mono font-bold">{result.color.toUpperCase()}</span> folie in de machine
           </p>
-          <p className="text-sm text-blue-600 mt-1">
-            {result.rollWidthMm / 10}cm breed, minimaal{" "}
-            {(result.totalLengthMm / 10).toFixed(1)}cm nodig
+          <p className="text-xs text-[var(--color-stebo-mute)] mt-1">
+            {result.rollWidthMm / 10} cm breed · minimaal {(result.totalLengthMm / 10).toFixed(1)} cm nodig
           </p>
         </div>
       )}
@@ -83,57 +92,51 @@ export default function CutStep({
       </div>
 
       {/* Export buttons */}
-      <div className="flex flex-wrap gap-2 mb-4">
-        <button
-          onClick={() => handleExport("svg")}
-          disabled={exporting}
-          className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-        >
-          Download SVG
-        </button>
-        <button
-          onClick={() => handleExport("hpgl")}
-          disabled={exporting}
-          className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-        >
-          Download HPGL/PLT
-        </button>
-        <button
-          onClick={() => handleExport("dxf")}
-          disabled={exporting}
-          className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-        >
-          Download DXF
-        </button>
+      <div className="flex flex-wrap gap-2 mb-5">
+        <p className="text-xs font-semibold uppercase tracking-wider text-[var(--color-stebo-mute)] flex items-center mr-2">
+          Export
+        </p>
+        {(["svg", "hpgl", "dxf"] as const).map((fmt) => (
+          <button
+            key={fmt}
+            onClick={() => handleExport(fmt)}
+            disabled={exporting}
+            className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wider border border-[var(--color-stebo-line)] hover:border-[var(--color-stebo-blue-700)] hover:bg-white text-[var(--color-stebo-ink)] rounded-md transition-colors"
+          >
+            {fmt === "hpgl" ? "HPGL/PLT" : fmt}
+          </button>
+        ))}
       </div>
 
       {/* Cut button */}
-      {status === "pending" && (
+      {!isDone && (
         <button
           onClick={onCut}
-          className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold text-lg rounded-xl transition-colors shadow-lg hover:shadow-xl"
+          className="w-full py-4 bg-[var(--color-stebo-blue-700)] hover:bg-[var(--color-stebo-blue-800)] text-white font-bold text-base uppercase tracking-wider rounded-lg transition-colors shadow-sm hover:shadow-md flex items-center justify-center gap-3"
         >
-          SNIJ DEZE KLEUR
+          <span className="inline-block w-2 h-2 rounded-full bg-[var(--color-stebo-yellow)]" />
+          Snij deze kleur
+          <span className="inline-block w-2 h-2 rounded-full bg-[var(--color-stebo-yellow)]" />
         </button>
       )}
 
       {/* Progress bar */}
-      <div className="mt-4">
-        <div className="flex justify-between text-sm text-gray-500 mb-1">
-          <span>Voortgang</span>
-          <span>
-            {stepNumber} van {totalSteps}
+      <div className="mt-5">
+        <div className="flex justify-between text-xs text-[var(--color-stebo-mute)] mb-2">
+          <span className="font-semibold uppercase tracking-wider">Voortgang</span>
+          <span className="font-mono">
+            {stepNumber} / {totalSteps}
           </span>
         </div>
-        <div className="w-full bg-gray-200 rounded-full h-3">
+        <div className="w-full bg-[var(--color-stebo-line)] rounded-full h-1.5 overflow-hidden">
           <div
-            className="bg-blue-600 h-3 rounded-full transition-all duration-500"
+            className="bg-[var(--color-stebo-blue-700)] h-1.5 rounded-full transition-all duration-500"
             style={{
               width: `${(stepNumber / totalSteps) * 100}%`,
             }}
           />
         </div>
       </div>
-    </div>
+    </article>
   );
 }

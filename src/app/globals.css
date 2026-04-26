@@ -1,1 +1,189 @@
 @import "tailwindcss";
+
+@theme {
+  --color-stebo-blue: #2f4390;
+  --color-stebo-blue-50: #f0f3fb;
+  --color-stebo-blue-100: #d9e0f3;
+  --color-stebo-blue-200: #b3c1e6;
+  --color-stebo-blue-300: #8ca2d9;
+  --color-stebo-blue-500: #5570bb;
+  --color-stebo-blue-600: #3f5aa6;
+  --color-stebo-blue-700: #2f4390;
+  --color-stebo-blue-800: #243375;
+  --color-stebo-blue-900: #1a2658;
+
+  --color-stebo-yellow: #edc12b;
+  --color-stebo-yellow-50: #fdf8e6;
+  --color-stebo-yellow-100: #fbedb2;
+  --color-stebo-yellow-200: #f6dd6e;
+  --color-stebo-yellow-400: #efc83a;
+  --color-stebo-yellow-500: #edc12b;
+  --color-stebo-yellow-600: #c9a11f;
+  --color-stebo-yellow-700: #a3821a;
+
+  --color-stebo-ink: #0f1424;
+  --color-stebo-paper: #fafaf7;
+  --color-stebo-line: #e6e4dd;
+  --color-stebo-mute: #6b6f7c;
+}
+
+html, body {
+  background: var(--color-stebo-paper);
+  color: var(--color-stebo-ink);
+  font-feature-settings: "ss01", "cv11", "cv02";
+}
+
+/* Subtle paper grain on body — invisible but adds tactility */
+body {
+  background-image:
+    radial-gradient(rgba(15, 20, 36, 0.018) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+
+/* Brand accent bar utility — yellow stripe with blue corner */
+.stebo-rule {
+  position: relative;
+  height: 6px;
+  background: var(--color-stebo-yellow);
+}
+.stebo-rule::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: 64px;
+  background: var(--color-stebo-blue-700);
+}
+
+/* Selection color */
+::selection {
+  background: var(--color-stebo-yellow);
+  color: var(--color-stebo-blue-900);
+}
+
+/* Focus ring fallback */
+:focus-visible {
+  outline: 2px solid var(--color-stebo-blue-700);
+  outline-offset: 2px;
+}
+
+/* Buttons primary */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.125rem;
+  background: var(--color-stebo-blue-700);
+  color: white;
+  font-weight: 600;
+  font-size: 0.875rem;
+  letter-spacing: -0.01em;
+  border-radius: 8px;
+  transition: background 120ms ease, transform 120ms ease;
+}
+.btn-primary:hover {
+  background: var(--color-stebo-blue-800);
+}
+.btn-primary:active {
+  transform: translateY(1px);
+}
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-yellow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.125rem;
+  background: var(--color-stebo-yellow);
+  color: var(--color-stebo-blue-900);
+  font-weight: 700;
+  font-size: 0.875rem;
+  letter-spacing: -0.01em;
+  border-radius: 8px;
+  transition: background 120ms ease, transform 120ms ease;
+}
+.btn-yellow:hover {
+  background: var(--color-stebo-yellow-400);
+}
+.btn-yellow:active {
+  transform: translateY(1px);
+}
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.875rem;
+  background: transparent;
+  color: var(--color-stebo-ink);
+  font-weight: 500;
+  font-size: 0.875rem;
+  border: 1px solid var(--color-stebo-line);
+  border-radius: 8px;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.btn-ghost:hover {
+  background: white;
+  border-color: var(--color-stebo-blue-300);
+}
+
+/* Card */
+.card {
+  background: white;
+  border: 1px solid var(--color-stebo-line);
+  border-radius: 12px;
+  box-shadow: 0 1px 0 rgba(15, 20, 36, 0.02);
+}
+
+/* Input */
+.input-stebo {
+  width: 100%;
+  padding: 0.625rem 0.875rem;
+  background: white;
+  border: 1px solid var(--color-stebo-line);
+  border-radius: 8px;
+  font-size: 0.9375rem;
+  color: var(--color-stebo-ink);
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.input-stebo:focus {
+  outline: none;
+  border-color: var(--color-stebo-blue-600);
+  box-shadow: 0 0 0 3px rgba(47, 67, 144, 0.12);
+}
+
+/* Tag */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-radius: 4px;
+}
+
+/* Section heading underline */
+.section-title {
+  position: relative;
+  display: inline-block;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.section-title::after {
+  content: "";
+  position: absolute;
+  bottom: -6px;
+  left: 0;
+  width: 32px;
+  height: 3px;
+  background: var(--color-stebo-yellow);
+}

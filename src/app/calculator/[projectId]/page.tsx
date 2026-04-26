@@ -102,53 +102,53 @@ export default function CalculatorPage() {
     await analyzeDesigns(designs, rollWidth, price);
   }
 
-  if (loading) return <p className="text-gray-500">Laden...</p>;
-  if (!project) return <p className="text-red-500">Project niet gevonden</p>;
+  if (loading) return <p className="text-[var(--color-stebo-mute)]">Laden...</p>;
+  if (!project) return <p className="text-red-600">Project niet gevonden</p>;
 
   const totalCost = formatTotalCost(colorGroups);
 
   return (
     <div className="max-w-5xl">
-      <div className="flex items-center justify-between mb-6">
+      <header className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold">{project.name}</h1>
-          <p className="text-gray-500">Folie-calculator</p>
+          <p className="text-xs font-semibold tracking-[0.18em] text-[var(--color-stebo-blue-700)] uppercase mb-2">
+            <span className="inline-block w-6 h-px bg-[var(--color-stebo-yellow)] align-middle mr-2" />
+            Stap 2 — Calculator
+          </p>
+          <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-[var(--color-stebo-ink)]">
+            {project.name}
+          </h1>
+          <p className="text-[var(--color-stebo-mute)] mt-1.5">Folie per kleur, totaalkosten en rolverbruik</p>
         </div>
         <div className="flex gap-2">
-          <Link
-            href={`/preview/${projectId}`}
-            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-          >
+          <Link href={`/preview/${projectId}`} className="btn-ghost">
             Pand-preview
           </Link>
-          <Link
-            href={`/cut/${projectId}`}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            Start snij-workflow
+          <Link href={`/cut/${projectId}`} className="btn-primary">
+            Snij-workflow →
           </Link>
         </div>
-      </div>
+      </header>
 
       {/* Settings */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
-        <h3 className="font-semibold mb-4">Instellingen</h3>
-        <div className="grid grid-cols-3 gap-4">
+      <div className="card p-6 mb-6">
+        <h3 className="section-title text-lg mb-6">Instellingen</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 items-end">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-xs font-semibold uppercase tracking-wider text-[var(--color-stebo-mute)] mb-1.5">
               Folierol breedte
             </label>
             <select
               value={rollWidth}
               onChange={(e) => setRollWidth(parseInt(e.target.value))}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+              className="input-stebo appearance-none"
             >
               <option value={630}>63 cm</option>
               <option value={1260}>126 cm</option>
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-xs font-semibold uppercase tracking-wider text-[var(--color-stebo-mute)] mb-1.5">
               Prijs per meter (€)
             </label>
             <input
@@ -157,14 +157,11 @@ export default function CalculatorPage() {
               value={pricePerMeter}
               onChange={(e) => setPricePerMeter(e.target.value)}
               placeholder="4.50"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+              className="input-stebo"
             />
           </div>
-          <div className="flex items-end">
-            <button
-              onClick={updateSettings}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
+          <div>
+            <button onClick={updateSettings} className="btn-primary w-full">
               Herbereken
             </button>
           </div>
@@ -172,36 +169,42 @@ export default function CalculatorPage() {
       </div>
 
       {/* Designs list */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="font-semibold">Ontwerpen ({designs.length})</h3>
+      <div className="card p-6 mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="section-title text-lg">
+            Ontwerpen <span className="text-[var(--color-stebo-mute)] font-normal">· {designs.length}</span>
+          </h3>
           <Link
             href={`/upload?projectId=${projectId}`}
-            className="text-sm text-blue-600 hover:text-blue-700"
+            className="text-sm font-medium text-[var(--color-stebo-blue-700)] hover:text-[var(--color-stebo-blue-800)] underline underline-offset-2"
           >
             + Upload ontwerp
           </Link>
         </div>
         {designs.length === 0 ? (
-          <p className="text-gray-500 text-sm">
-            Nog geen ontwerpen. Upload een SVG bestand.
+          <p className="text-[var(--color-stebo-mute)] text-sm italic">
+            Nog geen ontwerpen. Upload eerst een SVG bestand.
           </p>
         ) : (
           <div className="space-y-2">
             {designs.map((d) => (
               <div
                 key={d.id}
-                className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                className="flex items-center justify-between p-3 border border-[var(--color-stebo-line)] rounded-lg hover:border-[var(--color-stebo-blue-300)] transition-colors"
               >
                 <div className="flex items-center gap-3">
-                  <span className="text-2xl">📄</span>
+                  <span className="inline-flex items-center justify-center w-9 h-9 rounded-md bg-[var(--color-stebo-yellow-50)] text-[var(--color-stebo-blue-700)]">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                    </svg>
+                  </span>
                   <div>
-                    <p className="font-medium">{d.file_name}</p>
-                    <p className="text-xs text-gray-500">
+                    <p className="font-medium text-[var(--color-stebo-ink)]">{d.file_name}</p>
+                    <p className="text-xs text-[var(--color-stebo-mute)]">
                       {d.colors?.length || 0} kleuren
                       {d.width_mm &&
                         d.height_mm &&
-                        ` — ${(d.width_mm / 10).toFixed(0)}×${(d.height_mm / 10).toFixed(0)}cm`}
+                        ` · ${(d.width_mm / 10).toFixed(0)}×${(d.height_mm / 10).toFixed(0)} cm`}
                     </p>
                   </div>
                 </div>
