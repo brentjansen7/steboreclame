@@ -27,7 +27,7 @@ export default function RootLayout({
             <Link href="/" className="flex items-center gap-2 group">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/icon-red.svg"
+                src="/icon.svg"
                 alt="Stebo Reclame"
                 className="h-8 w-8"
               />
