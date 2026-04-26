@@ -24,15 +24,15 @@ export default function RootLayout({
         {/* Top nav */}
         <nav className="bg-white border-b border-[var(--color-stebo-line)]">
           <div className="max-w-7xl mx-auto px-6 py-4 flex items-center gap-10">
-            <Link href="/" className="flex items-center gap-2 group">
+            <Link href="/" className="flex items-center gap-3 group">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/icon.svg"
+                src="/stebo-logo.svg"
                 alt="Stebo Reclame"
-                className="h-8 w-8"
+                className="h-9 w-auto"
               />
-              <span className="text-xs font-medium tracking-widest uppercase text-[var(--color-stebo-ink)]">
-                Stebo Reclame
+              <span className="hidden md:inline-block text-xs font-medium tracking-widest uppercase text-[var(--color-stebo-mute)] border-l border-[var(--color-stebo-line)] pl-3">
+                Folie Tool
               </span>
             </Link>
 
