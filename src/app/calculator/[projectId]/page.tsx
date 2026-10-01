@@ -4,16 +4,27 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { analyzeSvg } from "@/lib/svgAnalyzer";
-import { calculateVinyl, formatTotalCost } from "@/lib/vinylCalculator";
-import ColorList from "@/components/ColorList";
-import type { Project, Design, ColorGroup } from "@/types";
+import { measureDesign, type ColorLayer, type DesignMeasurement } from "@/lib/colorLayers";
+import { extractLayers, includedLayers } from "@/lib/designLayers";
+import { adviseLayers, type LayerAdvice } from "@/lib/layerAdvice";
+import { downloadLayerCutFile, downloadLayerPdf } from "@/lib/layerExport";
+import { findPriceForColor, loadColorPrices } from "@/lib/colorPrices";
+import LayerTable from "@/components/LayerTable";
+import type { Project, Design } from "@/types";
+
+interface AnalyzedDesign {
+  design: Design;
+  layers: ColorLayer[]; // included layers only
+  measurement: DesignMeasurement | null;
+  advice?: LayerAdvice; // nearest vinyl colour + points to check
+  error?: string;
+}
 
 export default function CalculatorPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const [project, setProject] = useState<Project | null>(null);
   const [designs, setDesigns] = useState<Design[]>([]);
-  const [colorGroups, setColorGroups] = useState<ColorGroup[]>([]);
+  const [analyzed, setAnalyzed] = useState<AnalyzedDesign[]>([]);
   const [rollWidth, setRollWidth] = useState(630);
   const [pricePerMeter, setPricePerMeter] = useState("");
   const [loading, setLoading] = useState(true);
@@ -50,43 +61,62 @@ export default function CalculatorPage() {
     setLoading(false);
   }
 
+  function measure(design: Design, layers: ColorLayer[], width: number, price: number | null) {
+    if (!design.width_mm || layers.length === 0) return null;
+    const prices = loadColorPrices();
+    return measureDesign({
+      layers,
+      realWidthMm: Number(design.width_mm),
+      quantity: design.quantity || 1,
+      rollWidthMm: width,
+      pricePerMeter: price,
+      priceForColor: (hex) => findPriceForColor(hex, prices),
+    });
+  }
+
   async function analyzeDesigns(
     designList: Design[],
     width: number,
     price: number | null
   ) {
-    const allGroups = new Map<string, ColorGroup>();
+    const results: AnalyzedDesign[] = [];
 
     for (const design of designList) {
-      // Download SVG from storage
-      const { data } = await supabase.storage
+      // Only vector designs (SVG, or PDF stored as SVG) can be measured per layer
+      if (!/\.svg$/i.test(design.file_path)) continue;
+      const { data, error } = await supabase.storage
         .from("designs")
         .download(design.file_path);
-      if (!data) continue;
-
-      const svgText = await data.text();
-      const { colorGroups: groups, viewBox } = analyzeSvg(svgText);
-      const results = calculateVinyl(groups, width, price, viewBox);
-
-      for (const group of results) {
-        if (allGroups.has(group.color)) {
-          const existing = allGroups.get(group.color)!;
-          existing.elements.push(...group.elements);
-          existing.totalArea += group.totalArea;
-          existing.requiredLength += group.requiredLength;
-          existing.meters += group.meters;
-          if (existing.cost !== null && group.cost !== null) {
-            existing.cost += group.cost;
-          }
-        } else {
-          allGroups.set(group.color, { ...group });
-        }
+      if (!data) {
+        results.push({ design, layers: [], measurement: null, error: error?.message || "bestand niet gevonden" });
+        continue;
       }
+
+      const layers = includedLayers(extractLayers(await data.text()), design.excluded_colors || []);
+      const measurement = measure(design, layers, width, price);
+      results.push({
+        design,
+        layers,
+        measurement,
+        advice: measurement ? adviseLayers(measurement, layers, width) : undefined,
+      });
     }
 
-    setColorGroups(
-      Array.from(allGroups.values()).sort((a, b) => b.meters - a.meters)
+    setAnalyzed(results);
+  }
+
+  async function updateQuantity(designId: string, value: number) {
+    const quantity = Math.max(1, Math.floor(value) || 1);
+    const price = pricePerMeter ? parseFloat(pricePerMeter) : null;
+    setDesigns((list) => list.map((d) => (d.id === designId ? { ...d, quantity } : d)));
+    setAnalyzed((list) =>
+      list.map((a) => {
+        if (a.design.id !== designId) return a;
+        const design = { ...a.design, quantity };
+        return { ...a, design, measurement: measure(design, a.layers, rollWidth, price) };
+      })
     );
+    await supabase.from("designs").update({ quantity }).eq("id", designId);
   }
 
   async function updateSettings() {
@@ -105,7 +135,10 @@ export default function CalculatorPage() {
   if (loading) return <p className="text-[var(--color-stebo-mute)]">Laden...</p>;
   if (!project) return <p className="text-red-600">Project niet gevonden</p>;
 
-  const totalCost = formatTotalCost(colorGroups);
+  const measured = analyzed.filter((a) => a.measurement);
+  const grandTotal = measured.every((a) => a.measurement!.layers.every((l) => l.cost !== null))
+    ? measured.reduce((s, a) => s + a.measurement!.layers.reduce((t, l) => t + (l.cost || 0), 0), 0)
+    : null;
 
   return (
     <div className="max-w-5xl">
@@ -208,14 +241,63 @@ export default function CalculatorPage() {
                     </p>
                   </div>
                 </div>
+                <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[var(--color-stebo-mute)]">
+                  Aantal
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    defaultValue={d.quantity || 1}
+                    onBlur={(e) => updateQuantity(d.id, parseInt(e.target.value))}
+                    onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                    className="input-stebo w-20 text-right"
+                  />
+                </label>
               </div>
             ))}
           </div>
         )}
       </div>
 
-      {/* Results */}
-      <ColorList colorGroups={colorGroups} totalCost={totalCost} />
+      {/* Results: measurements per colour layer, per design */}
+      {analyzed.filter((a) => a.error).map((a) => (
+        <div key={a.design.id} className="card p-4 mb-4 border-l-4 border-red-500">
+          <p className="text-sm text-[var(--color-stebo-ink)]">
+            <strong>{a.design.file_name}</strong> kon niet geladen worden ({a.error}). Upload het ontwerp opnieuw.
+          </p>
+        </div>
+      ))}
+      <div className="space-y-6">
+        {measured.map(({ design, layers, measurement, advice }) => (
+          <div key={design.id}>
+            <p className="text-sm font-semibold text-[var(--color-stebo-ink)] mb-2">{design.file_name}</p>
+            {advice && advice.warnings.length > 0 && (
+              <ul className="mb-2 text-sm text-[var(--color-stebo-ink)] bg-[var(--color-stebo-yellow-50)] border-l-4 border-[var(--color-stebo-yellow)] rounded-r px-4 py-3 space-y-1 list-disc list-inside">
+                {advice.warnings.map((w) => (
+                  <li key={w}>{w}</li>
+                ))}
+              </ul>
+            )}
+            <LayerTable
+              measurement={measurement!}
+              matches={advice?.matches}
+              onDownloadPdf={() => downloadLayerPdf(design.file_name, layers, measurement!, advice?.names)}
+              onDownloadCut={(layer, format) =>
+                downloadLayerCutFile(design.file_name, layers, measurement!, layer, rollWidth, format)
+              }
+            />
+          </div>
+        ))}
+      </div>
+
+      {measured.length > 1 && grandTotal !== null && (
+        <div className="mt-6 card p-5 flex items-center justify-between bg-[var(--color-stebo-blue-700)] text-white border-[var(--color-stebo-blue-700)]">
+          <span className="font-semibold uppercase tracking-wider text-xs">
+            <span className="text-[var(--color-stebo-yellow)]">●</span> Totaal materiaalkosten project
+          </span>
+          <span className="font-mono text-lg font-bold tabular-nums">€ {grandTotal.toFixed(2)}</span>
+        </div>
+      )}
     </div>
   );
 }

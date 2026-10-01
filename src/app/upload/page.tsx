@@ -1,11 +1,16 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import FileUpload from "@/components/FileUpload";
 import ColorList from "@/components/ColorList";
-import { analyzeSvg, analyzeRaster } from "@/lib/svgAnalyzer";
-import { calculateVinyl, calculateVinylFromFractions, formatTotalCost } from "@/lib/vinylCalculator";
+import LayerTable from "@/components/LayerTable";
+import { analyzeRaster } from "@/lib/svgAnalyzer";
+import { calculateVinylFromFractions, formatTotalCost } from "@/lib/vinylCalculator";
+import { measureDesign, type ColorLayer } from "@/lib/colorLayers";
+import { convertPdf, defaultExcluded, designAspect, extractLayers, includedLayers } from "@/lib/designLayers";
+import { downloadLayerCutFile, downloadLayerPdf } from "@/lib/layerExport";
+import { adviseLayers } from "@/lib/layerAdvice";
 import { supabase } from "@/lib/supabase";
 import { loadColorPrices, findPriceForColor, type ColorPrice } from "@/lib/colorPrices";
 import type { ColorGroup } from "@/types";
@@ -29,36 +34,56 @@ function UploadContent() {
   const [heightLocked, setHeightLocked] = useState<boolean>(true); // auto-fill from aspect until user edits
   const [aspect, setAspect] = useState<number>(1); // height / width
   const [rasterColors, setRasterColors] = useState<RasterColors | null>(null);
-  const [svgViewBox, setSvgViewBox] = useState<{ width: number; height: number } | null>(null);
+  const [layers, setLayers] = useState<ColorLayer[]>([]);
+  const [excluded, setExcluded] = useState<string[]>([]);
+  const [quantity, setQuantity] = useState<string>("1");
   const [colorPrices, setColorPrices] = useState<ColorPrice[]>([]);
   const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [converting, setConverting] = useState(false);
 
   useEffect(() => {
     setColorPrices(loadColorPrices());
   }, []);
 
+  function loadVectorDesign(svgText: string) {
+    const found = extractLayers(svgText);
+    const skip = defaultExcluded(found);
+    setSvgContent(svgText);
+    setDesignImageUrl(null);
+    setRasterColors(null);
+    setLayers(found);
+    setExcluded(skip);
+    setAspect(designAspect(includedLayers(found, skip)));
+  }
+
   async function handleDesignLoaded(content: string, name: string, file: File) {
     setFileName(name);
     setColorGroups([]);
+    setLoadError(null);
     setHeightLocked(true); // re-enable auto-fill on new design
     const isSvg = file.type === "image/svg+xml" || /\.svg$/i.test(name);
+    const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(name);
 
-    if (isSvg) {
+    if (isPdf) {
+      setConverting(true);
+      try {
+        loadVectorDesign(await convertPdf(file));
+      } catch (err) {
+        setSvgContent(null);
+        setLayers([]);
+        setLoadError(err instanceof Error ? err.message : "PDF kon niet gelezen worden");
+      } finally {
+        setConverting(false);
+      }
+    } else if (isSvg) {
       const reader = new FileReader();
-      reader.onload = (e) => {
-        const svgText = e.target?.result as string;
-        setSvgContent(svgText);
-        setDesignImageUrl(null);
-        setRasterColors(null);
-
-        const { viewBox } = analyzeSvg(svgText);
-        setSvgViewBox(viewBox);
-        setAspect(viewBox.height / viewBox.width);
-      };
+      reader.onload = (e) => loadVectorDesign(e.target?.result as string);
       reader.readAsText(file);
     } else {
       setSvgContent(null);
-      setSvgViewBox(null);
+      setLayers([]);
       setDesignImageUrl(content);
 
       const { colors, viewBox } = await analyzeRaster(content);
@@ -89,41 +114,86 @@ function UploadContent() {
     const price = pricePerMeter ? parseFloat(pricePerMeter) : null;
     const priceForColor = (hex: string) => findPriceForColor(hex, colorPrices);
 
-    if (svgContent && svgViewBox) {
-      const { colorGroups: groups } = analyzeSvg(svgContent);
-      const results = calculateVinyl(groups, rollWidth, price, svgViewBox, widthMm, priceForColor);
-      setColorGroups(results);
-    } else if (rasterColors) {
+    if (rasterColors) {
       const results = calculateVinylFromFractions(rasterColors, widthMm, heightMm, rollWidth, price, priceForColor);
       setColorGroups(results);
     }
-  }, [realWidthCm, realHeightCm, pricePerMeter, rollWidth, svgContent, svgViewBox, rasterColors, colorPrices]);
+  }, [realWidthCm, realHeightCm, pricePerMeter, rollWidth, rasterColors, colorPrices]);
+
+  // Vector designs (SVG/PDF): exact measurements per colour layer
+  const activeLayers = useMemo(() => includedLayers(layers, excluded), [layers, excluded]);
+  const qty = Math.max(1, parseInt(quantity) || 1);
+  const measurement = useMemo(() => {
+    const widthMm = parseFloat(realWidthCm) * 10;
+    if (!svgContent || activeLayers.length === 0 || !(widthMm > 0)) return null;
+    return measureDesign({
+      layers: activeLayers,
+      realWidthMm: widthMm,
+      quantity: qty,
+      rollWidthMm: rollWidth,
+      pricePerMeter: pricePerMeter ? parseFloat(pricePerMeter) : null,
+      priceForColor: (hex) => findPriceForColor(hex, colorPrices),
+    });
+  }, [svgContent, activeLayers, realWidthCm, qty, rollWidth, pricePerMeter, colorPrices]);
+
+  // Nearest vinyl colour + points to check, all computed in code
+  const advice = useMemo(
+    () => (measurement ? adviseLayers(measurement, activeLayers, rollWidth) : null),
+    [measurement, activeLayers, rollWidth]
+  );
+
+  function toggleLayer(color: string) {
+    const next = excluded.includes(color) ? excluded.filter((c) => c !== color) : [...excluded, color];
+    setExcluded(next);
+    setAspect(designAspect(includedLayers(layers, next)));
+  }
 
   async function saveDesign() {
     if ((!svgContent && !designImageUrl) || !projectId) return;
     setSaving(true);
+    setSaveError(null);
 
-    const filePath = `${projectId}/${Date.now()}-${fileName}`;
-    if (svgContent) {
-      await supabase.storage
-        .from("designs")
-        .upload(filePath, new Blob([svgContent], { type: "image/svg+xml" }));
-    } else if (designImageUrl) {
-      const blob = await fetch(designImageUrl).then((r) => r.blob());
-      await supabase.storage.from("designs").upload(filePath, blob);
+    // PDFs are stored as the converted SVG
+    const storedName = svgContent ? (fileName || "ontwerp").replace(/\.pdf$/i, ".svg") : fileName;
+    const filePath = `${projectId}/${Date.now()}-${storedName}`;
+    const blob = svgContent
+      ? new Blob([svgContent], { type: "image/svg+xml" })
+      : await fetch(designImageUrl!).then((r) => r.blob());
+    const upload = await supabase.storage.from("designs").upload(filePath, blob);
+    if (upload.error) {
+      // Without the file the calculator and the cut page have nothing to work with
+      setSaveError(`Ontwerp kon niet geüpload worden: ${upload.error.message}`);
+      setSaving(false);
+      return;
     }
 
     const widthMm = parseFloat(realWidthCm) * 10;
     const heightMm = parseFloat(realHeightCm) * 10;
 
-    await supabase.from("designs").insert({
+    const row = {
       project_id: projectId,
       file_path: filePath,
       file_name: fileName,
-      colors: colorGroups.map((g) => g.color),
+      colors: measurement ? measurement.layers.map((l) => l.color) : colorGroups.map((g) => g.color),
       width_mm: widthMm || null,
-      height_mm: heightMm || null,
+      height_mm: (measurement ? measurement.heightMm : heightMm) || null,
+    };
+    const { error } = await supabase.from("designs").insert({
+      ...row,
+      quantity: qty,
+      excluded_colors: excluded,
+      color_layers: measurement?.layers ?? null,
     });
+    if (error) {
+      // Database without migration 002: save without the new columns
+      console.warn("Opslaan met kleurlagen mislukt, opnieuw zonder:", error.message);
+      const retry = await supabase.from("designs").insert(row);
+      if (retry.error) {
+        setSaveError(`Opslaan mislukt: ${retry.error.message}`);
+        setSaving(false);
+        return;
+      }
+    }
 
     if (pricePerMeter) {
       await supabase
@@ -154,17 +224,19 @@ function UploadContent() {
           Ontwerp uploaden
         </h1>
         <p className="text-[var(--color-stebo-mute)] mt-1.5">
-          SVG geeft de meest precieze berekening. PNG/JPEG werkt ook voor schattingen.
+          PDF of SVG geeft exacte maten per kleurlaag. PNG/JPEG werkt ook voor schattingen.
         </p>
       </header>
 
       <div className="mb-6">
         <FileUpload
-          accept=".svg,image/svg+xml,image/png,image/jpeg"
-          label="Upload ontwerp (SVG, PNG of JPEG)"
+          accept=".pdf,application/pdf,.svg,image/svg+xml,image/png,image/jpeg"
+          label="Upload ontwerp (PDF, SVG, PNG of JPEG)"
           onFileLoaded={handleDesignLoaded}
           readAsText={false}
         />
+        {converting && <p className="text-sm text-[var(--color-stebo-mute)] mt-3">PDF wordt gelezen…</p>}
+        {loadError && <p className="text-sm text-red-600 mt-3">{loadError}</p>}
       </div>
 
       {designReady && (
@@ -253,7 +325,44 @@ function UploadContent() {
                 {colorPrices.length > 0 && ` (${colorPrices.length} kleuren ingesteld)`}.
               </p>
             </div>
+            {svgContent && (
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-[var(--color-stebo-mute)] mb-1.5">
+                  Aantal stuks
+                </label>
+                <input
+                  type="number"
+                  step="1"
+                  min="1"
+                  value={quantity}
+                  onChange={(e) => setQuantity(e.target.value)}
+                  className="input-stebo"
+                />
+                <p className="text-xs text-[var(--color-stebo-mute)] mt-1.5">
+                  Hetzelfde ontwerp meerdere keren maken? Folie en kosten worden voor alle stuks samen berekend.
+                </p>
+              </div>
+            )}
           </div>
+          {layers.length > 0 && (
+            <div className="mt-6">
+              <p className="text-xs font-semibold uppercase tracking-wider text-[var(--color-stebo-mute)] mb-2">
+                Gevonden kleuren · vink uit wat geen folie is (bijv. achtergrond)
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {layers.map((l) => (
+                  <label
+                    key={l.color}
+                    className="flex items-center gap-2 border border-[var(--color-stebo-line)] rounded-md px-2.5 py-1.5 text-sm cursor-pointer hover:bg-[var(--color-stebo-paper)]"
+                  >
+                    <input type="checkbox" checked={!excluded.includes(l.color)} onChange={() => toggleLayer(l.color)} />
+                    <span className="w-4 h-4 rounded border border-[var(--color-stebo-line)]" style={{ backgroundColor: l.color }} />
+                    <span className="font-mono text-xs">{l.color}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
           {!widthValid && (
             <div className="mt-4 flex gap-2 items-start text-sm bg-[var(--color-stebo-yellow-50)] border-l-4 border-[var(--color-stebo-yellow)] rounded-r p-3">
               <svg className="w-4 h-4 mt-0.5 flex-shrink-0 text-[var(--color-stebo-yellow-700)]" fill="currentColor" viewBox="0 0 20 20">
@@ -267,9 +376,27 @@ function UploadContent() {
         </div>
       )}
 
-      {colorGroups.length > 0 && (
+      {(colorGroups.length > 0 || measurement) && (
         <>
-          <ColorList colorGroups={colorGroups} totalCost={totalCost} />
+          {advice && advice.warnings.length > 0 && (
+            <ul className="mb-3 text-sm text-[var(--color-stebo-ink)] bg-[var(--color-stebo-yellow-50)] border-l-4 border-[var(--color-stebo-yellow)] rounded-r px-4 py-3 space-y-1 list-disc list-inside">
+              {advice.warnings.map((w) => (
+                <li key={w}>{w}</li>
+              ))}
+            </ul>
+          )}
+          {measurement ? (
+            <LayerTable
+              measurement={measurement}
+              matches={advice?.matches}
+              onDownloadPdf={() => downloadLayerPdf(fileName || "ontwerp", activeLayers, measurement, advice?.names)}
+              onDownloadCut={(layer, format) =>
+                downloadLayerCutFile(fileName || "ontwerp", activeLayers, measurement, layer, rollWidth, format)
+              }
+            />
+          ) : (
+            <ColorList colorGroups={colorGroups} totalCost={totalCost} />
+          )}
 
           <div className="mt-6 card p-6">
             <h3 className="section-title text-lg mb-6">Ontwerp preview</h3>
@@ -298,13 +425,16 @@ function UploadContent() {
                 </p>
                 <p className="font-semibold">Opslaan en doorgaan naar de calculator</p>
               </div>
-              <button
-                onClick={saveDesign}
-                disabled={saving}
-                className="btn-yellow"
-              >
-                {saving ? "Opslaan..." : "Opslaan & verder →"}
-              </button>
+              <div className="text-right">
+                <button
+                  onClick={saveDesign}
+                  disabled={saving}
+                  className="btn-yellow"
+                >
+                  {saving ? "Opslaan..." : "Opslaan & verder →"}
+                </button>
+                {saveError && <p className="text-sm text-[var(--color-stebo-yellow)] mt-2 max-w-md">{saveError}</p>}
+              </div>
             </div>
           )}
         </>

@@ -1,58 +1,56 @@
-import type { NestedResult } from "./nestingEngine";
-import { generateHpgl } from "./hpglGenerator";
+import type { CutPlan } from "./cutPlan";
 
-// Export nested result as SVG cutting file
-export function exportAsSvg(result: NestedResult): string {
-  const { rollWidthMm, totalLengthMm, placements, color } = result;
+const HPGL_UNITS_PER_MM = 40; // Standard HPGL: 40 units = 1mm
+const round = (v: number) => Math.round(v * 100) / 100;
 
-  const paths = placements
-    .map((p) => {
-      const transform = p.rotated
-        ? `translate(${p.x},${p.y}) rotate(90)`
-        : `translate(${p.x},${p.y})`;
-      return `  <path d="${p.element.pathData}" fill="none" stroke="${color}" stroke-width="0.1" transform="${transform}" />`;
-    })
+// Export a cut plan as an SVG cutting file (mm, 1:1)
+export function exportAsSvg(plan: CutPlan): string {
+  const paths = plan.lines
+    .filter((l) => l.length > 1)
+    .map((l) => `    <polyline points="${l.map((p) => `${round(p.x)},${round(p.y)}`).join(" ")}" />`)
     .join("\n");
 
   return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${rollWidthMm} ${totalLengthMm}" width="${rollWidthMm}mm" height="${totalLengthMm}mm">
-  <!-- Roll: ${rollWidthMm}mm breed x ${totalLengthMm}mm lang -->
-  <!-- Kleur: ${color} -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${plan.rollWidthMm} ${plan.totalLengthMm}" width="${plan.rollWidthMm}mm" height="${plan.totalLengthMm}mm">
+  <!-- Rol: ${plan.rollWidthMm}mm breed x ${plan.totalLengthMm}mm lang -->
+  <!-- Kleur: ${plan.color} · ${plan.pieces}x · ${plan.mode === "laag" ? "hele laag met paskruisjes" : "losse vormen"} -->
+  <g fill="none" stroke="${plan.color}" stroke-width="0.1">
 ${paths}
+  </g>
 </svg>`;
 }
 
-// Export nested result as HPGL/PLT cutting file
-export function exportAsHpgl(result: NestedResult): string {
-  return generateHpgl(result.placements);
+// Export a cut plan as HPGL/PLT. The plotter runs X along the roll and Y across
+// it; swapping the axes also turns y-down into y-up, so nothing is mirrored.
+export function exportAsHpgl(plan: CutPlan): string {
+  const u = (v: number) => Math.round(v * HPGL_UNITS_PER_MM);
+  const out = ["IN;", "SP1;"];
+  for (const line of plan.lines) {
+    if (line.length < 2) continue;
+    out.push(`PU${u(line[0].y)},${u(line[0].x)};`);
+    out.push(`PD${line.slice(1).map((p) => `${u(p.y)},${u(p.x)}`).join(",")};`);
+  }
+  out.push("PU;", "SP0;", "IN;");
+  return out.join("\n");
 }
 
-// Export nested result as DXF (using makerjs)
-export async function exportAsDxf(result: NestedResult): Promise<string> {
+// Export a cut plan as DXF (using makerjs), in mm with y pointing up
+export async function exportAsDxf(plan: CutPlan): Promise<string> {
   // Dynamic import to avoid SSR issues
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const makerjs: any = await import("makerjs");
 
   const models: Record<string, unknown> = {};
-
-  result.placements.forEach((p, i) => {
-    const pathData = p.element.pathData;
-    try {
-      const model = makerjs.importer.fromSVGPathData(pathData);
-      if (model) {
-        makerjs.model.moveRelative(model, [p.x, p.y]);
-        if (p.rotated) {
-          makerjs.model.rotate(model, 90, [p.x, p.y]);
-        }
-        models[`shape_${i}`] = model;
-      }
-    } catch {
-      // Skip shapes that can't be imported
-    }
+  plan.lines.forEach((line, i) => {
+    if (line.length < 2) return;
+    const first = line[0];
+    const last = line[line.length - 1];
+    const closed = first.x === last.x && first.y === last.y;
+    const points = (closed ? line.slice(0, -1) : line).map((p) => [round(p.x), round(plan.totalLengthMm - p.y)]);
+    models[`shape_${i}`] = new makerjs.models.ConnectTheDots(closed, points);
   });
 
-  const combined = { models };
-  return makerjs.exporter.toDXF(combined);
+  return makerjs.exporter.toDXF({ models }, { units: makerjs.unitType.Millimeter });
 }
 
 // Download a string as a file in the browser

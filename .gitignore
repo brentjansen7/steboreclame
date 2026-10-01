@@ -42,3 +42,6 @@ next-env.d.ts
 
 .vercel
 apply-credentials.json
+
+# losse credentials, horen in C:/Users/brent/.ai-secrets/
+.vercel-creds-b64.txt

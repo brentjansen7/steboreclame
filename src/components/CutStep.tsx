@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import type { NestedResult } from "@/lib/nestingEngine";
+import type { CutPlan } from "@/lib/cutPlan";
 import NestPreview from "./NestPreview";
 
 interface CutStepProps {
-  result: NestedResult;
+  plan: CutPlan;
   stepNumber: number;
   totalSteps: number;
   status: "pending" | "done";
@@ -14,7 +14,7 @@ interface CutStepProps {
 }
 
 export default function CutStep({
-  result,
+  plan,
   stepNumber,
   totalSteps,
   status,
@@ -44,7 +44,7 @@ export default function CutStep({
         <div className="flex items-center gap-4">
           <div
             className="relative w-14 h-14 rounded-lg border-2 border-white shadow-md flex-shrink-0"
-            style={{ backgroundColor: result.color }}
+            style={{ backgroundColor: plan.color }}
           >
             <div className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-[var(--color-stebo-blue-700)] text-white text-[11px] font-bold flex items-center justify-center font-mono shadow">
               {stepNumber}
@@ -55,12 +55,12 @@ export default function CutStep({
               Kleur {stepNumber} van {totalSteps}
             </p>
             <h3 className="font-bold text-lg text-[var(--color-stebo-ink)] font-mono mt-0.5">
-              {result.color}
+              {plan.color}
             </h3>
             <p className="text-sm text-[var(--color-stebo-mute)] mt-1">
-              Rolbreedte <span className="font-mono font-semibold text-[var(--color-stebo-ink)]">{result.rollWidthMm / 10} cm</span>
+              Rolbreedte <span className="font-mono font-semibold text-[var(--color-stebo-ink)]">{plan.rollWidthMm / 10} cm</span>
               <span className="mx-2">·</span>
-              Lengte <span className="font-mono font-semibold text-[var(--color-stebo-ink)]">{(result.totalLengthMm / 10).toFixed(1)} cm</span>
+              Lengte <span className="font-mono font-semibold text-[var(--color-stebo-ink)]">{(plan.totalLengthMm / 10).toFixed(1)} cm</span>
             </p>
           </div>
         </div>
@@ -78,17 +78,25 @@ export default function CutStep({
       {!isDone && (
         <div className="bg-[var(--color-stebo-paper)] border-l-4 border-[var(--color-stebo-yellow)] rounded-r-lg p-4 mb-4">
           <p className="font-semibold text-[var(--color-stebo-ink)] text-sm">
-            Leg <span className="font-mono font-bold">{result.color.toUpperCase()}</span> folie in de machine
+            Leg <span className="font-mono font-bold">{plan.color.toUpperCase()}</span> folie in de machine
           </p>
           <p className="text-xs text-[var(--color-stebo-mute)] mt-1">
-            {result.rollWidthMm / 10} cm breed · minimaal {(result.totalLengthMm / 10).toFixed(1)} cm nodig
+            {plan.rollWidthMm / 10} cm breed · minimaal {(plan.totalLengthMm / 10).toFixed(1)} cm nodig
+            {plan.mode === "laag"
+              ? ` · ${plan.pieces} ${plan.pieces === 1 ? "stuk" : "stuks"} in één vel, met paskruisjes`
+              : " · losse vormen, zuinig gelegd"}
           </p>
+          {!plan.fitsOnRoll && (
+            <p className="text-xs text-red-600 font-semibold mt-1">
+              Past niet op deze rol — kies een bredere rol of snijd in banen.
+            </p>
+          )}
         </div>
       )}
 
       {/* Nesting preview */}
       <div className="mb-4">
-        <NestPreview result={result} />
+        <NestPreview plan={plan} />
       </div>
 
       {/* Export buttons */}

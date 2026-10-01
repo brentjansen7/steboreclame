@@ -16,6 +16,8 @@ export interface Design {
   colors: string[]; // hex colors
   width_mm: number | null;
   height_mm: number | null;
+  quantity?: number | null; // how many times this design is made
+  excluded_colors?: string[] | null; // colours that are not vinyl (e.g. background)
   created_at: string;
 }
 
@@ -43,6 +45,8 @@ export interface SvgElement {
   fill: string;
   pathData: string;
   bbox: { x: number; y: number; width: number; height: number };
+  kind?: "fill" | "stroke"; // stroke = outline drawn with a line width
+  strokeWidth?: number; // in SVG user units (after transform)
 }
 
 export interface ColorGroup {

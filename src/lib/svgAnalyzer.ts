@@ -1,6 +1,7 @@
 import { svgPathBbox } from "svg-path-bbox";
 import SvgPath from "svgpath";
-import type { SvgElement, ColorGroup } from "@/types";
+import { transformScale } from "./pathGeometry";
+import type { SvgElement } from "@/types";
 
 // Parse an SVG string and extract all elements with their colors and dimensions
 export function analyzeSvg(svgString: string): {
@@ -72,18 +73,15 @@ function collectElements(
       continue;
     }
 
-    const fill = extractFill(child, parentFill);
-    if (!fill || fill === "none" || fill === "transparent") continue;
-
     const pathData = elementToPath(child, tag);
     if (!pathData) continue;
 
-    // Apply transforms to path data
-    const transformedPath = transform
-      ? SvgPath(pathData).transform(transform).toString()
+    // Apply transforms (parent chain + own transform) to path data
+    const elementTransform = combineTransforms(transform, child.getAttribute("transform") || "");
+    const transformedPath = elementTransform
+      ? SvgPath(pathData).transform(elementTransform).toString()
       : pathData;
 
-    // Calculate bounding box
     const [minX, minY, maxX, maxY] = svgPathBbox(transformedPath);
     const bbox = {
       x: minX,
@@ -91,15 +89,37 @@ function collectElements(
       width: maxX - minX,
       height: maxY - minY,
     };
+    const id = child.getAttribute("id") || `el-${elements.length}`;
 
-    elements.push({
-      id: child.getAttribute("id") || `el-${elements.length}`,
-      tagName: tag,
-      fill: normalizeColor(fill),
-      pathData: transformedPath,
-      bbox,
-    });
+    const fill = extractFill(child, parentFill);
+    if (fill && fill !== "none" && fill !== "transparent") {
+      elements.push({ id, tagName: tag, fill: normalizeColor(fill), pathData: transformedPath, bbox, kind: "fill" });
+    }
+
+    // Outlines are also vinyl (e.g. a coloured border around letters)
+    const stroke = extractPaint(child, "stroke");
+    if (stroke && stroke !== "none" && stroke !== "transparent") {
+      const width =
+        parseFloat(extractPaint(child, "stroke-width") || "1") * transformScale(elementTransform);
+      const half = width / 2;
+      elements.push({
+        id: `${id}-stroke`,
+        tagName: tag,
+        fill: normalizeColor(stroke),
+        pathData: transformedPath,
+        bbox: { x: bbox.x - half, y: bbox.y - half, width: bbox.width + width, height: bbox.height + width },
+        kind: "stroke",
+        strokeWidth: width,
+      });
+    }
   }
+}
+
+function extractPaint(el: Element, prop: string): string {
+  const style = el.getAttribute("style") || "";
+  const match = style.match(new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;]+)`));
+  if (match) return match[1].trim();
+  return el.getAttribute(prop) || "";
 }
 
 function extractFill(el: Element, parentFill: string): string {

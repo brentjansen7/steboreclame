@@ -6,6 +6,7 @@ export interface NestedResult {
   rollWidthMm: number;
   totalLengthMm: number;
   placements: Placement[];
+  svgToMmScale: number;
 }
 
 export interface Placement {
@@ -70,6 +71,7 @@ export function nestColorGroup(
     rollWidthMm,
     totalLengthMm: Math.ceil(totalLengthMm),
     placements,
+    svgToMmScale,
   };
 }
 

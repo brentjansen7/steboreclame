@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { analyzeSvg, svgUnitsToMm } from "@/lib/svgAnalyzer";
-import { nestColorGroup, type NestedResult } from "@/lib/nestingEngine";
+import { nestColorGroup } from "@/lib/nestingEngine";
+import { measureDesign } from "@/lib/colorLayers";
+import { extractLayers, includedLayers } from "@/lib/designLayers";
+import { planFromLayer, planFromNesting, type CutMode, type CutPlan } from "@/lib/cutPlan";
 import {
   exportAsSvg,
   exportAsHpgl,
@@ -15,10 +17,18 @@ import {
 import CutStep from "@/components/CutStep";
 import type { Project, Design, CutStep as CutStepType } from "@/types";
 
+interface ColorPlans {
+  design: Design;
+  color: string;
+  laag: CutPlan; // whole layer with registration marks, × quantity
+  zuinig: CutPlan; // loose shapes, least vinyl
+}
+
 export default function CutFlowPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const [project, setProject] = useState<Project | null>(null);
-  const [nestedResults, setNestedResults] = useState<NestedResult[]>([]);
+  const [plans, setPlans] = useState<ColorPlans[]>([]);
+  const [mode, setMode] = useState<CutMode>("laag");
   const [cutSteps, setCutSteps] = useState<CutStepType[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeStep, setActiveStep] = useState(0);
@@ -57,65 +67,66 @@ export default function CutFlowPage() {
       .eq("project_id", projectId);
 
     if (designs && designs.length > 0) {
-      await generateNesting(designs, proj?.roll_width || 630, steps || []);
+      await generatePlans(designs, proj?.roll_width || 630, steps || []);
     }
 
     setLoading(false);
   }
 
-  async function generateNesting(
+  // Build both cut plans per colour: the whole layer with registration marks
+  // (how Stephan layers vinyl) and the thrifty version with loose shapes.
+  async function generatePlans(
     designs: Design[],
     rollWidth: number,
     existingSteps: CutStepType[]
   ) {
-    // Collect all elements from all designs
-    const allColorGroups = new Map<
-      string,
-      { elements: import("@/types").SvgElement[]; scale: number }
-    >();
+    const built: ColorPlans[] = [];
 
     for (const design of designs) {
-      const { data } = await supabase.storage
-        .from("designs")
-        .download(design.file_path);
+      if (!/\.svg$/i.test(design.file_path)) continue;
+      const { data } = await supabase.storage.from("designs").download(design.file_path);
       if (!data) continue;
 
       const svgText = await data.text();
-      const { colorGroups, viewBox } = analyzeSvg(svgText);
-      const scale = svgUnitsToMm(1, viewBox.width, design.width_mm || undefined);
+      const layers = includedLayers(extractLayers(svgText), design.excluded_colors || []);
+      if (layers.length === 0 || !design.width_mm) continue;
 
-      for (const [color, elements] of colorGroups) {
-        if (!allColorGroups.has(color)) {
-          allColorGroups.set(color, { elements: [], scale });
-        }
-        allColorGroups.get(color)!.elements.push(...elements);
+      const measurement = measureDesign({
+        layers,
+        realWidthMm: Number(design.width_mm),
+        quantity: design.quantity || 1,
+        rollWidthMm: rollWidth,
+        pricePerMeter: null,
+      });
+
+      for (const m of measurement.layers) {
+        const layer = layers.find((l) => l.color === m.color)!;
+        built.push({
+          design,
+          color: m.color,
+          laag: planFromLayer(layer, m, measurement.scaleMmPerUnit, rollWidth),
+          zuinig: planFromNesting(
+            nestColorGroup(layer.elements, m.color, rollWidth, measurement.scaleMmPerUnit)
+          ),
+        });
       }
     }
 
-    // Nest each color group
-    const results: NestedResult[] = [];
+    // One cut step per colour, in the order they are cut
     const newSteps: CutStepType[] = [];
-
     let orderNum = 1;
-    for (const [color, { elements, scale }] of allColorGroups) {
-      const nested = nestColorGroup(elements, color, rollWidth, scale);
-      results.push(nested);
-
-      // Check if step already exists
-      const existing = existingSteps.find(
-        (s) => s.color === color
-      );
+    for (const { color, laag } of built) {
+      const existing = existingSteps.find((s) => s.color === color);
       if (existing) {
         newSteps.push(existing);
       } else {
-        // Create new cut step in Supabase
         const { data: step } = await supabase
           .from("cut_steps")
           .insert({
             project_id: projectId,
             color,
             order_num: orderNum,
-            length_mm: nested.totalLengthMm,
+            length_mm: laag.totalLengthMm,
             status: "pending",
           })
           .select()
@@ -125,7 +136,7 @@ export default function CutFlowPage() {
       orderNum++;
     }
 
-    setNestedResults(results);
+    setPlans(built);
     setCutSteps(newSteps);
   }
 
@@ -152,25 +163,22 @@ export default function CutFlowPage() {
     stepIndex: number,
     format: "svg" | "hpgl" | "dxf"
   ) {
-    const result = nestedResults[stepIndex];
-    if (!result) return;
+    const plan = plans[stepIndex]?.[mode];
+    if (!plan) return;
 
-    const colorName = result.color.replace("#", "");
+    const base = `snij-${plan.color.replace("#", "")}-${mode}${plan.pieces > 1 ? `-x${plan.pieces}` : ""}`;
 
     switch (format) {
       case "svg": {
-        const svg = exportAsSvg(result);
-        downloadFile(svg, `snij-${colorName}.svg`, "image/svg+xml");
+        downloadFile(exportAsSvg(plan), `${base}.svg`, "image/svg+xml");
         break;
       }
       case "hpgl": {
-        const hpgl = exportAsHpgl(result);
-        downloadFile(hpgl, `snij-${colorName}.plt`, "text/plain");
+        downloadFile(exportAsHpgl(plan), `${base}.plt`, "text/plain");
         break;
       }
       case "dxf": {
-        const dxf = await exportAsDxf(result);
-        downloadFile(dxf, `snij-${colorName}.dxf`, "application/dxf");
+        downloadFile(await exportAsDxf(plan), `${base}.dxf`, "application/dxf");
         break;
       }
     }
@@ -236,8 +244,52 @@ export default function CutFlowPage() {
         )}
       </div>
 
+      {/* How to cut */}
+      {plans.length > 0 && (
+        <div className="card p-5 mb-6">
+          <p className="text-xs font-semibold uppercase tracking-wider text-[var(--color-stebo-mute)] mb-3">
+            Hoe wil je snijden?
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {([
+              {
+                value: "laag" as const,
+                title: "Hele laag met paskruisjes",
+                text: "Alle vormen blijven op hun plek, inclusief paskruisjes en het aantal stuks. Je plakt de laag in één keer over met overzetfolie.",
+              },
+              {
+                value: "zuinig" as const,
+                title: "Zuinig: losse vormen",
+                text: "Elke vorm apart op de rol. Kost veel minder folie, maar je plakt elk stuk zelf op de goede plek.",
+              },
+            ]).map((option) => (
+              <label
+                key={option.value}
+                className={`flex gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                  mode === option.value
+                    ? "border-[var(--color-stebo-blue-700)] bg-[var(--color-stebo-blue-50)]"
+                    : "border-[var(--color-stebo-line)] hover:bg-[var(--color-stebo-paper)]"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="cutmode"
+                  className="mt-1"
+                  checked={mode === option.value}
+                  onChange={() => setMode(option.value)}
+                />
+                <span>
+                  <span className="block font-semibold text-sm text-[var(--color-stebo-ink)]">{option.title}</span>
+                  <span className="block text-xs text-[var(--color-stebo-mute)] mt-1">{option.text}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Cut steps */}
-      {nestedResults.length === 0 ? (
+      {plans.length === 0 ? (
         <div className="card p-12 text-center">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-[var(--color-stebo-yellow-50)] mb-4">
             <svg className="w-7 h-7 text-[var(--color-stebo-blue-700)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
@@ -258,12 +310,12 @@ export default function CutFlowPage() {
         </div>
       ) : (
         <div className="space-y-6">
-          {nestedResults.map((result, i) => (
+          {plans.map((p, i) => (
             <CutStep
-              key={result.color}
-              result={result}
+              key={`${p.design.id}-${p.color}`}
+              plan={p[mode]}
               stepNumber={i + 1}
-              totalSteps={nestedResults.length}
+              totalSteps={plans.length}
               status={cutSteps[i]?.status === "done" ? "done" : "pending"}
               onCut={() => markAsCut(i)}
               onExport={(format) => handleExport(i, format)}
