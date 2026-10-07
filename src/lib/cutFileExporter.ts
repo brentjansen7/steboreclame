@@ -5,9 +5,17 @@ const round = (v: number) => Math.round(v * 100) / 100;
 
 // Export a cut plan as an SVG cutting file (mm, 1:1)
 export function exportAsSvg(plan: CutPlan): string {
+  // Shapes that end where they start become closed paths (Z), so CorelDraw and
+  // the like import them as closed curves instead of open lines
   const paths = plan.lines
     .filter((l) => l.length > 1)
-    .map((l) => `    <polyline points="${l.map((p) => `${round(p.x)},${round(p.y)}`).join(" ")}" />`)
+    .map((l) => {
+      const first = l[0];
+      const last = l[l.length - 1];
+      const closed = first.x === last.x && first.y === last.y && l.length > 2;
+      const pts = (closed ? l.slice(0, -1) : l).map((p) => `${round(p.x)},${round(p.y)}`);
+      return `    <path d="M${pts.join(" L")}${closed ? " Z" : ""}" />`;
+    })
     .join("\n");
 
   return `<?xml version="1.0" encoding="UTF-8"?>

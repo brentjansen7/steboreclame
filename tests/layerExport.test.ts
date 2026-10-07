@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import { groupIntoLayers, measureDesign, MARK_GAP_MM, MARK_SIZE_MM } from "@/lib/colorLayers";
 import { pieceCutLines, planFromLayer } from "@/lib/cutPlan";
-import { exportAsHpgl } from "@/lib/cutFileExporter";
+import { exportAsHpgl, exportAsSvg } from "@/lib/cutFileExporter";
+import { flattenPath } from "@/lib/pathGeometry";
 import { generateLayerPdf } from "@/lib/layerExport";
 import { pdfToSvg } from "@/lib/pdfToSvg";
 import { analyzeSvg } from "@/lib/svgAnalyzer";
@@ -36,6 +37,21 @@ const shoelace = (line: Polyline) =>
   line.slice(0, -1).reduce((sum, p, i) => sum + (p.x * line[i + 1].y - line[i + 1].x * p.y), 0);
 
 describe("cut files", () => {
+  it("writes closed shapes in the SVG, at true size", () => {
+    const { layers, measurement } = setup();
+    const plan = planFromLayer(layers[0], measurement.layers[0], measurement.scaleMmPerUnit, 630);
+    const svg = exportAsSvg(plan);
+    const paths = [...svg.matchAll(/<path d="([^"]+)"/g)].map((m) => m[1]);
+    // 1 shape + 4 marks, all closed
+    expect(paths).toHaveLength(5);
+    for (const d of paths) expect(d.endsWith(" Z")).toBe(true);
+    // The rectangle is 100 × 50 mm in the file (1 unit = 1 mm)
+    const b = box(flattenPath(paths[0])[0]);
+    expect(b.maxX - b.minX).toBeCloseTo(100, 6);
+    expect(b.maxY - b.minY).toBeCloseTo(50, 6);
+    expect(svg).toContain('width="630mm"');
+  });
+
   it("adds 4 registration marks around every piece", () => {
     const { layers, measurement } = setup();
     const piece = pieceCutLines(layers[0], measurement.scaleMmPerUnit);
