@@ -10,7 +10,7 @@ const ROLL_BORDER_MM = 3;
 
 export interface LayerAdvice {
   matches: Record<string, ColorMatch>; // hex of the design → vinyl from the chart
-  names: Record<string, string>; // hex → "Oracal 651-070 Zwart"
+  names: Record<string, string>; // hex → "Oracal 751-070 Zwart"
   warnings: string[];
 }
 
