@@ -4,6 +4,8 @@ import { groupIntoLayers, measureDesign, MARK_GAP_MM, MARK_SIZE_MM } from "@/lib
 import { pieceCutLines, planFromLayer } from "@/lib/cutPlan";
 import { exportAsHpgl } from "@/lib/cutFileExporter";
 import { generateLayerPdf } from "@/lib/layerExport";
+import { pdfToSvg } from "@/lib/pdfToSvg";
+import { analyzeSvg } from "@/lib/svgAnalyzer";
 import type { Polyline } from "@/lib/pathGeometry";
 import type { SvgElement } from "@/types";
 
@@ -91,6 +93,23 @@ describe("cut files", () => {
 });
 
 describe("layer PDF", () => {
+  it("draws a piece that fits on the page at true size", async () => {
+    const { layers, measurement } = setup();
+    const pdf = await generateLayerPdf({ title: "Test", layers, measurement });
+    // Read the PDF back as vectors and measure the red rectangle on paper
+    const red = analyzeSvg(pdfToSvg(new Uint8Array(pdf))).elements.find((e) => e.fill === "#FF0000" && e.bbox.width > 50);
+    const ptToMm = 25.4 / 72;
+    expect(red!.bbox.width * ptToMm).toBeCloseTo(100, 1);
+    expect(red!.bbox.height * ptToMm).toBeCloseTo(50, 1);
+  });
+
+  it("scales down a piece that is too big for the page", async () => {
+    const { layers, measurement } = setup(1, 1260, rect, 2000); // 2 m wide
+    const pdf = await generateLayerPdf({ title: "Test", layers, measurement });
+    const red = analyzeSvg(pdfToSvg(new Uint8Array(pdf))).elements.find((e) => e.fill === "#FF0000" && e.bbox.width > 50);
+    expect(red!.bbox.width * (25.4 / 72)).toBeLessThan(297);
+  });
+
   it("makes one page per colour layer", async () => {
     const blue: SvgElement = { ...rect, id: "b", fill: "#0000FF", pathData: "M0 60 H100 V80 H0 Z", bbox: { x: 0, y: 60, width: 100, height: 20 } };
     const layers = groupIntoLayers([rect, blue]);

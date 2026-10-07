@@ -5,6 +5,8 @@ import { MARK_GAP_MM, MARK_SIZE_MM, unionBox } from "./colorLayers";
 import { exportAsHpgl, exportAsSvg } from "./cutFileExporter";
 import { markRects, planFromLayer } from "./cutPlan";
 
+const PT_PER_MM = 72 / 25.4; // PDF points per millimetre at true size
+
 function hexToRgb(hex: string) {
   const n = parseInt(hex.replace("#", ""), 16);
   return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255);
@@ -35,10 +37,12 @@ export async function generateLayerPdf(options: {
     const box = unionBox(layer.elements);
     const o = MARK_GAP_MM + MARK_SIZE_MM;
 
-    // Fit the piece (layer + marks, in mm) into the drawing area
+    // True size (1:1) when the piece fits on the page, so a printout can be
+    // measured. Bigger pieces are scaled down, and the sheet says so.
     const areaW = PAGE_W - 2 * MARGIN;
     const areaH = PAGE_H - 2 * MARGIN - TEXT_H;
-    const ptPerMm = Math.min(areaW / m.pieceWidthMm, areaH / m.pieceHeightMm);
+    const ptPerMm = Math.min(PT_PER_MM, areaW / m.pieceWidthMm, areaH / m.pieceHeightMm);
+    const trueSize = ptPerMm >= PT_PER_MM - 1e-9;
     const left = MARGIN + (areaW - m.pieceWidthMm * ptPerMm) / 2;
     const top = PAGE_H - MARGIN - (areaH - m.pieceHeightMm * ptPerMm) / 2;
     const unitToPt = measurement.scaleMmPerUnit * ptPerMm;
@@ -81,6 +85,9 @@ export async function generateLayerPdf(options: {
       `B × H: ${cm(m.widthMm)} × ${cm(m.heightMm)} cm   ·   met paskruisjes: ${cm(m.pieceWidthMm)} × ${cm(m.pieceHeightMm)} cm`,
       `Positie vanaf linksboven logo: ${cm(m.xMm)} cm rechts, ${cm(m.yMm)} cm omlaag`,
       `Oppervlakte: ${(m.areaMm2 / 1e6).toFixed(3)} m² per stuk   ·   Aantal: × ${m.quantity}   ·   Rol: ${m.meters.toFixed(2)} m`,
+      trueSize
+        ? "Ware grootte (1:1) — print op 100% / werkelijke grootte"
+        : `Verkleind (schaal 1:${(PT_PER_MM / ptPerMm).toFixed(1)}) — niet nameten op papier`,
     ];
     page.drawRectangle({ x: MARGIN, y: MARGIN + TEXT_H - 34, width: 22, height: 22, color });
     page.drawText(name, { x: MARGIN + 32, y: MARGIN + TEXT_H - 28, size: 14, font: bold, color: ink });
